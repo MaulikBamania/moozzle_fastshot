@@ -1,0 +1,6 @@
+{
+  "base": [],
+  "data": ["react-native-gifted-charts", "date-fns"],
+  "media": ["expo-camera", "expo-image-picker", "expo-video", "expo-audio"],
+  "maps": ["react-native-maps", "expo-location"]
+}

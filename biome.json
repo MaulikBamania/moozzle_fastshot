@@ -1,0 +1,120 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.15/schema.json",
+  "formatter": {
+    "enabled": false
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "off"
+      }
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "complexity": {
+        "noForEach": "off",
+        "useLiteralKeys": "off",
+        "useOptionalChain": "error",
+        "noUselessFragments": "error",
+        "noStaticOnlyClass": "off",
+        "noUselessTernary": "error",
+        "noUselessCatch": "error",
+        "noUselessConstructor": "error",
+        "noUselessSwitchCase": "error",
+        "noUselessLabel": "error",
+        "noUselessTypeConstraint": "error",
+        "useFlatMap": "warn"
+      },
+      "correctness": {
+        "useExhaustiveDependencies": "error",
+        "useHookAtTopLevel": "error",
+        "noUnusedImports": "error",
+        "noUnusedVariables": "error",
+        "noUnusedFunctionParameters": "warn",
+        "noUndeclaredVariables": "error",
+        "noInvalidUseBeforeDeclaration": "error",
+        "noInvalidBuiltinInstantiation": "error",
+        "noUndeclaredDependencies": "warn"
+      },
+      "suspicious": {
+        "noExplicitAny": "warn",
+        "noArrayIndexKey": "warn",
+        "noConsole": "off",
+        "noDoubleEquals": "error",
+        "noAssignInExpressions": "error",
+        "noShadowRestrictedNames": "error",
+        "useIterableCallbackReturn": "error",
+        "noEmptyBlockStatements": "error",
+        "noFallthroughSwitchClause": "error",
+        "noDuplicateCase": "error",
+        "noDuplicateObjectKeys": "error",
+        "noGlobalAssign": "error",
+        "noPrototypeBuiltins": "error",
+        "noSelfCompare": "error",
+        "noRedeclare": "error",
+        "useAwait": "warn",
+        "noConfusingVoidType": "warn"
+      },
+      "style": {
+        "noNonNullAssertion": "warn",
+        "useConst": "error",
+        "useImportType": "warn",
+        "useTemplate": "error",
+        "noParameterAssign": "warn",
+        "useDefaultParameterLast": "error",
+        "useExponentiationOperator": "warn",
+        "useSelfClosingElements": "warn",
+        "useShorthandAssign": "warn",
+        "noInferrableTypes": "warn",
+        "useNamingConvention": {
+          "level": "warn",
+          "options": {
+            "conventions": [
+              { "selector": { "kind": "function" }, "formats": ["camelCase", "PascalCase"] },
+              { "selector": { "kind": "variable" }, "formats": ["camelCase", "PascalCase", "CONSTANT_CASE"] },
+              { "selector": { "kind": "typeLike" }, "formats": ["PascalCase"] }
+            ]
+          }
+        }
+      },
+      "performance": {
+        "noAccumulatingSpread": "error",
+        "noDelete": "off",
+        "noBarrelFile": "warn",
+        "noReExportAll": "warn"
+      },
+      "a11y": {
+        "useKeyWithClickEvents": "off",
+        "useKeyWithMouseEvents": "off",
+        "noSvgWithoutTitle": "off",
+        "useButtonType": "off",
+        "useAltText": "warn",
+        "noAutofocus": "off",
+        "useSemanticElements": "off",
+        "noStaticElementInteractions": "off",
+        "noLabelWithoutControl": "off",
+        "useAnchorContent": "off",
+        "useFocusableInteractive": "off",
+        "noNoninteractiveTabindex": "off"
+      },
+      "nursery": {}
+    }
+  },
+  "files": {
+    "includes": [
+      "app/**/*.ts",
+      "app/**/*.tsx",
+      "components/**/*.ts",
+      "components/**/*.tsx",
+      "store/**/*.ts",
+      "constants/**/*.ts",
+      "hooks/**/*.ts",
+      "hooks/**/*.tsx",
+      "utils/**/*.ts",
+      "services/**/*.ts"
+    ]
+  }
+}
