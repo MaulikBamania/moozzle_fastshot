@@ -54,7 +54,7 @@ const translations: Record<Language, Record<string, string>> = {
     verifyAnimal: 'VERIFY ANIMAL',
     next: 'Next',
     retry: 'Retry',
-    online: 'ONLINE · Sample Data',
+    online: 'ONLINE • Sample Data',
     fieldTip: 'Field Tip',
   },
   HI: {
@@ -154,6 +154,15 @@ export function LogoMark({ compact = false }: { compact?: boolean }) {
   );
 }
 
+export function BiometricScanIcon({ size = 28, color = colors.surface }: { size?: number; color?: string }) {
+  return (
+    <View style={[styles.biometricScanIcon, { width: size, height: size }]}>
+      <Ionicons name="scan-outline" size={size} color={color} style={StyleSheet.absoluteFill} />
+      <Ionicons name="finger-print-outline" size={size * 0.68} color={color} />
+    </View>
+  );
+}
+
 export function AppHeader({ language, onLanguageChange }: { language: Language; onLanguageChange: (value: Language) => void }) {
   return (
     <View style={styles.appHeader}>
@@ -203,9 +212,9 @@ export function BottomNav({ active }: { active: TabName }) {
     router.replace(routes[tab] as never);
   }, []);
   const language = useAppStore((state) => state.language);
-  const items: { key: TabName; icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
+  const items: { key: TabName; icon?: keyof typeof Ionicons.glyphMap; biometric?: boolean; label: string }[] = [
     { key: 'home', icon: 'home', label: tr(language, 'home') },
-    { key: 'identify', icon: 'scan-outline', label: tr(language, 'identify') },
+    { key: 'identify', biometric: true, label: tr(language, 'identify') },
     { key: 'records', icon: 'document-text-outline', label: tr(language, 'records') },
     { key: 'verify', icon: 'shield-checkmark-outline', label: tr(language, 'verify') },
   ];
@@ -221,7 +230,7 @@ export function BottomNav({ active }: { active: TabName }) {
           onPress={() => handleNavigate(item.key)}
           style={styles.tabButton}
         >
-          <Ionicons name={item.icon} size={28} color={active === item.key ? colors.primary : colors.muted} />
+          {item.biometric ? <BiometricScanIcon size={28} color={active === item.key ? colors.primary : colors.muted} /> : <Ionicons name={item.icon ?? 'ellipse-outline'} size={28} color={active === item.key ? colors.primary : colors.muted} />}
           <Text style={[styles.tabLabel, active === item.key && styles.tabLabelActive]}>{item.label}</Text>
           {active === item.key && <View style={styles.tabIndicator} />}
         </Pressable>
@@ -384,16 +393,16 @@ const styles = StyleSheet.create({
   logoMarkText: { color: colors.surface, fontFamily: Fonts.bold, fontSize: 13, position: 'absolute', bottom: 8 },
   brandCopy: { flex: 1, minWidth: 0, gap: 1 },
   brandName: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 23, letterSpacing: 0.2 },
-  brandSubtitle: { color: '#526A84', fontFamily: Fonts.medium, fontSize: 11 },
-  headerActions: { width: 124, alignItems: 'flex-end', gap: 9, paddingTop: 8 },
+  brandSubtitle: { color: '#526A84', fontFamily: Fonts.medium, fontSize: 10, letterSpacing: -0.15 },
+  headerActions: { width: 132, flexShrink: 0, alignItems: 'flex-end', gap: 9, paddingTop: 8 },
   languageRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   languageItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   languageText: { color: colors.muted, fontFamily: Fonts.semiBold, fontSize: 12 },
   languageActive: { color: colors.primary },
   languageDivider: { color: '#94A3B8', fontSize: 12 },
-  networkChip: { width: 124, backgroundColor: colors.primaryLight, borderRadius: 18, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 8, gap: 5 },
+  networkChip: { width: 132, backgroundColor: colors.primaryLight, borderRadius: 18, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 8, gap: 5 },
   onlineDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.accent },
-  networkText: { flex: 1, color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 10 },
+  networkText: { flex: 1, color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 9.5, letterSpacing: -0.15 },
   bottomNav: { minHeight: 72, paddingTop: 8, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', justifyContent: 'space-around' },
   tabButton: { minWidth: 70, minHeight: 60, alignItems: 'center', justifyContent: 'flex-start', gap: 2 },
   tabLabel: { color: colors.muted, fontFamily: Fonts.medium, fontSize: 12 },
@@ -403,6 +412,7 @@ const styles = StyleSheet.create({
   sectionTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 22 },
   sectionAction: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 14 },
   card: { backgroundColor: colors.surface, borderRadius: 14, borderWidth: 1, borderColor: colors.border, padding: 16, shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  biometricScanIcon: { alignItems: 'center', justifyContent: 'center' },
   primaryButton: { minHeight: 50, borderRadius: 12, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
   button_primary: { backgroundColor: colors.primary },
   button_blue: { backgroundColor: colors.blue },

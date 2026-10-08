@@ -9,6 +9,7 @@ import {
   BottomNav,
   Card,
   colors,
+  BiometricScanIcon,
   Pill,
   SectionTitle,
   StorageGate,
@@ -55,12 +56,12 @@ function HomeContent() {
           contentContainerStyle={styles.homeContent}
         >
           <Card style={styles.statsCard}>
+            <View style={styles.metricLabelRow}>
+              <Text style={styles.metricLabel}>Registered Bovines:</Text>
+              <Pill label="Demo Dataset" />
+            </View>
             <View style={styles.statsTop}>
               <View style={styles.statsMain}>
-                <View style={styles.metricLabelRow}>
-                  <Text style={styles.metricLabel}>Registered Bovines:</Text>
-                  <Pill label="Demo Dataset" />
-                </View>
                 <Text selectable style={styles.metricValue}>{animals.length}</Text>
                 <Text style={styles.metricSupporting}>2,822 central archive demo records</Text>
               </View>
@@ -77,7 +78,7 @@ function HomeContent() {
 
           <View style={styles.actionGrid}>
             <ActionTile icon="camera" title={tr(language, 'register')} description="Enrol new cattle/buffalo with 3-5 muzzle scans." background={colors.primary} lightText onPress={openRegister} />
-            <ActionTile icon="scan-outline" title={tr(language, 'identifyAnimal')} description="Scan muzzle to find 12-digit ID (1:N Search)." background={colors.blue} lightText onPress={openIdentify} />
+            <ActionTile icon="biometric-scan" title={tr(language, 'identifyAnimal')} description="Scan muzzle to find 12-digit ID (1:N Search)." background={colors.blue} lightText onPress={openIdentify} />
             <ActionTile icon="document-text-outline" title={tr(language, 'animalRecords')} description="Browse 20+ demo animals, health & AI records." background={colors.surface} onPress={openRecords} />
             <ActionTile icon="shield-checkmark" title={tr(language, 'verifyAnimal')} description="1:1 Verification against known MOOZZLE ID." background="#2F8B59" lightText onPress={openVerify} />
           </View>
@@ -111,13 +112,13 @@ function SpeciesMetric({ species, label, value, color }: { species: Animal['anim
   );
 }
 
-function ActionTile({ icon, title, description, background, lightText = false, onPress }: { icon: keyof typeof Ionicons.glyphMap; title: string; description: string; background: string; lightText?: boolean; onPress: () => void }) {
+function ActionTile({ icon, title, description, background, lightText = false, onPress }: { icon: keyof typeof Ionicons.glyphMap | 'biometric-scan'; title: string; description: string; background: string; lightText?: boolean; onPress: () => void }) {
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.actionTile, { backgroundColor: background }, pressed && styles.tilePressed]}>
-      <View style={[styles.actionIcon, lightText ? styles.actionIconLight : styles.actionIconDark]}><Ionicons name={icon} size={28} color={lightText ? colors.primary : colors.surface} /></View>
+      <View style={[styles.actionIcon, lightText ? styles.actionIconLight : styles.actionIconDark]}>{icon === 'biometric-scan' ? <BiometricScanIcon size={29} color={lightText ? colors.primary : colors.surface} /> : <Ionicons name={icon} size={28} color={lightText ? colors.primary : colors.surface} />}</View>
       <View style={styles.actionCopy}>
         <Text style={[styles.actionTitle, lightText && styles.actionLightText]}>{title}</Text>
-        <Text style={[styles.actionDescription, lightText && styles.actionLightText]}>{description}</Text>
+        <Text numberOfLines={2} style={[styles.actionDescription, lightText && styles.actionLightText]}>{description}</Text>
       </View>
       <View style={styles.actionChevron}><Ionicons name="chevron-forward" size={28} color={lightText ? colors.surface : '#7890A4'} /></View>
     </Pressable>
@@ -147,49 +148,49 @@ function formatRecentId(id: string) {
 const styles = StyleSheet.create({
   screenBody: { flex: 1 },
   homeScroll: { flex: 1 },
-  homeContent: { paddingHorizontal: 10, paddingTop: 10, paddingBottom: 12, gap: 16 },
-  statsCard: { padding: 14, backgroundColor: '#FBFFFC', borderColor: '#D6E9DE' },
-  statsTop: { flexDirection: 'row', minHeight: 100 },
-  statsMain: { flex: 1, gap: 4 },
-  metricLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'wrap' },
-  metricLabel: { color: colors.text, fontFamily: Fonts.bold, fontSize: 18 },
-  metricValue: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 48, lineHeight: 54, fontVariant: ['tabular-nums'] },
-  metricSupporting: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 10 },
-  speciesGrid: { flex: 0.95, flexDirection: 'row', marginLeft: 9, borderLeftWidth: 1, borderLeftColor: colors.border },
-  speciesMetric: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2, borderRightWidth: 1, borderRightColor: '#E8EEF1' },
+  homeContent: { paddingHorizontal: 10, paddingTop: 10, paddingBottom: 6, gap: 10 },
+  statsCard: { padding: 8, backgroundColor: '#FBFFFC', borderColor: '#D6E9DE' },
+  statsTop: { flexDirection: 'row', minHeight: 52 },
+  statsMain: { flex: 0.9, justifyContent: 'center', gap: 0 },
+  metricLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'nowrap' },
+  metricLabel: { color: colors.text, fontFamily: Fonts.bold, fontSize: 17 },
+  metricValue: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 38, lineHeight: 40, fontVariant: ['tabular-nums'] },
+  metricSupporting: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 8, lineHeight: 9 },
+  speciesGrid: { flex: 1.05, flexDirection: 'row', marginLeft: 9, borderLeftWidth: 1, borderLeftColor: colors.border },
+  speciesMetric: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 0, borderRightWidth: 1, borderRightColor: '#E8EEF1' },
   speciesLabel: { color: '#526176', fontFamily: Fonts.medium, fontSize: 13 },
-  speciesValue: { fontFamily: Fonts.bold, fontSize: 23, fontVariant: ['tabular-nums'] },
-  syncBanner: { backgroundColor: colors.warningLight, borderRadius: 12, minHeight: 43, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, marginTop: 8 },
-  syncText: { color: colors.warning, fontFamily: Fonts.semiBold, fontSize: 15 },
-  actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
-  actionTile: { width: '47.7%', minHeight: 126, borderRadius: 14, padding: 15, position: 'relative', flexDirection: 'column', alignItems: 'flex-start', shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
-  actionIcon: { width: 44, height: 44, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
+  speciesValue: { fontFamily: Fonts.bold, fontSize: 21, lineHeight: 23, fontVariant: ['tabular-nums'] },
+  syncBanner: { backgroundColor: colors.warningLight, borderRadius: 12, minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 9, marginTop: 5 },
+  syncText: { color: colors.warning, fontFamily: Fonts.semiBold, fontSize: 13 },
+  actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  actionTile: { width: '47.5%', height: 118, borderRadius: 14, padding: 10, position: 'relative', flexDirection: 'column', alignItems: 'flex-start', shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+  actionIcon: { width: 36, height: 36, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   actionIconLight: { backgroundColor: colors.surface },
   actionIconDark: { backgroundColor: '#0F2D4A' },
-  actionCopy: { width: '100%', gap: 7, paddingTop: 10, paddingRight: 4 },
-  actionChevron: { position: 'absolute', top: 18, right: 15 },
-  actionTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 15 },
-  actionDescription: { color: '#526A84', fontFamily: Fonts.regular, fontSize: 12, lineHeight: 18 },
+  actionCopy: { width: '100%', gap: 3, paddingTop: 4, paddingRight: 4 },
+  actionChevron: { position: 'absolute', top: 14, right: 12 },
+  actionTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 13, lineHeight: 16 },
+  actionDescription: { color: '#526A84', fontFamily: Fonts.regular, fontSize: 10.5, lineHeight: 15 },
   actionLightText: { color: colors.surface },
   tilePressed: { opacity: 0.84, transform: [{ scale: 0.985 }] },
-  tipBanner: { minHeight: 78, borderRadius: 14, backgroundColor: '#E7F5EE', paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  tipIcon: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
-  tipText: { flex: 1, color: '#3A526D', fontFamily: Fonts.regular, fontSize: 14, lineHeight: 20 },
+  tipBanner: { minHeight: 52, borderRadius: 14, backgroundColor: '#E7F5EE', paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  tipIcon: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
+  tipText: { flex: 1, color: '#3A526D', fontFamily: Fonts.regular, fontSize: 12, lineHeight: 17 },
   tipStrong: { color: colors.primary, fontFamily: Fonts.bold },
-  recentScroll: { marginHorizontal: -2 },
+  recentScroll: { flexGrow: 0, marginHorizontal: -2 },
   recentContent: { gap: 10, paddingHorizontal: 2 },
-  recentCard: { width: 182, overflow: 'hidden', borderRadius: 13, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
-  recentPhotoWrap: { height: 108, position: 'relative', backgroundColor: colors.primaryLight },
-  recentPhoto: { width: '100%', height: 108 },
-  typeTag: { position: 'absolute', top: 7, right: 7, backgroundColor: colors.primaryLight, borderRadius: 13, paddingHorizontal: 9, paddingVertical: 5 },
+  recentCard: { width: 110, overflow: 'hidden', borderRadius: 13, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  recentPhotoWrap: { height: 56, position: 'relative', backgroundColor: colors.primaryLight },
+  recentPhoto: { width: '100%', height: 56 },
+  typeTag: { position: 'absolute', top: 4, right: 4, backgroundColor: colors.primaryLight, borderRadius: 13, paddingHorizontal: 7, paddingVertical: 4 },
   typeTagBlue: { backgroundColor: colors.blueLight },
-  typeTagText: { color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 11 },
+  typeTagText: { color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 10 },
   typeTagTextBlue: { color: colors.blue },
-  recentInfo: { padding: 10, gap: 5 },
-  recentName: { color: colors.text, fontFamily: Fonts.bold, fontSize: 15 },
-  recentId: { color: '#526A84', fontFamily: Fonts.medium, fontSize: 12, fontVariant: ['tabular-nums'] },
-  enrolledRow: { minHeight: 24, flexDirection: 'row', alignItems: 'center', gap: 4 },
-  enrolledText: { flex: 1, color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 11 },
+  recentInfo: { padding: 6, gap: 3 },
+  recentName: { color: colors.text, fontFamily: Fonts.bold, fontSize: 13, lineHeight: 15 },
+  recentId: { color: '#526A84', fontFamily: Fonts.medium, fontSize: 10, fontVariant: ['tabular-nums'] },
+  enrolledRow: { minHeight: 20, flexDirection: 'row', alignItems: 'center', gap: 3 },
+  enrolledText: { flex: 1, color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 10 },
   carouselDots: { flexDirection: 'row', justifyContent: 'center', gap: 7, paddingVertical: 2 },
   carouselDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#CBD5E1' },
   carouselDotActive: { backgroundColor: colors.primary },
