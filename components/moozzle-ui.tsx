@@ -10,6 +10,7 @@ import {
   Text,
   TextInput,
   View,
+  type ImageStyle,
   type StyleProp,
   type TextInputProps,
   type ViewStyle,
@@ -160,7 +161,7 @@ export function AppHeader({ language, onLanguageChange }: { language: Language; 
         <LogoMark />
         <View style={styles.brandCopy}>
           <Text style={styles.brandName}>MOOZZLE</Text>
-          <Text style={styles.brandSubtitle}>Bovine Biometric Identification</Text>
+          <Text adjustsFontSizeToFit numberOfLines={1} style={styles.brandSubtitle}>Bovine Biometric Identification</Text>
         </View>
       </View>
       <View style={styles.headerActions}>
@@ -181,7 +182,7 @@ export function AppHeader({ language, onLanguageChange }: { language: Language; 
         </View>
         <View style={styles.networkChip}>
           <View style={styles.onlineDot} />
-          <Text style={styles.networkText}>{tr(language, 'online')}</Text>
+          <Text adjustsFontSizeToFit numberOfLines={1} style={styles.networkText}>{tr(language, 'online')}</Text>
         </View>
       </View>
     </View>
@@ -287,13 +288,13 @@ export function Pill({ label, tone = 'green' }: { label: string; tone?: 'green' 
   return <View style={[styles.pill, styles[`pill_${tone}`]]}><Text style={[styles.pillText, styles[`pillText_${tone}`]]}>{label}</Text></View>;
 }
 
-export function AnimalPhoto({ animal, size = 72, rounded = true }: { animal?: Animal; size?: number; rounded?: boolean }) {
+export function AnimalPhoto({ animal, size = 72, rounded = true, style }: { animal?: Animal; size?: number; rounded?: boolean; style?: StyleProp<ImageStyle> }) {
   return (
     <Image
       accessibilityLabel={animal ? `${animal.breed} ${animal.animal_type} reference` : 'Bovine reference'}
       source={getAnimalImageSource(animal?.reference_muzzle_uri)}
       contentFit="cover"
-      style={{ width: size, height: size, borderRadius: rounded ? 12 : 0, backgroundColor: colors.primaryLight }}
+      style={[{ width: size, height: size, borderRadius: rounded ? 12 : 0, backgroundColor: colors.primaryLight }, style]}
     />
   );
 }
@@ -376,23 +377,23 @@ const styles = StyleSheet.create({
   stateLabel: { color: colors.muted, fontFamily: Fonts.medium, fontSize: 15, textAlign: 'center' },
   errorIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.dangerLight, alignItems: 'center', justifyContent: 'center' },
   errorTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 18 },
-  appHeader: { minHeight: 88, paddingHorizontal: 14, paddingTop: 6, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  logoMark: { width: 58, height: 58, borderRadius: 30, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: colors.primary },
+  appHeader: { minHeight: 88, paddingHorizontal: 14, paddingTop: 6, flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  brandRow: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  logoMark: { width: 52, height: 52, borderRadius: 27, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: colors.primary },
   logoMarkCompact: { width: 44, height: 44, borderRadius: 22, borderWidth: 0 },
   logoMarkText: { color: colors.surface, fontFamily: Fonts.bold, fontSize: 13, position: 'absolute', bottom: 8 },
-  brandCopy: { gap: 1 },
-  brandName: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 27, letterSpacing: 0.2 },
-  brandSubtitle: { color: '#526A84', fontFamily: Fonts.medium, fontSize: 12 },
-  headerActions: { alignItems: 'flex-end', gap: 12, paddingTop: 8 },
-  languageRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  languageItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  languageText: { color: colors.muted, fontFamily: Fonts.semiBold, fontSize: 14 },
+  brandCopy: { flex: 1, minWidth: 0, gap: 1 },
+  brandName: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 23, letterSpacing: 0.2 },
+  brandSubtitle: { color: '#526A84', fontFamily: Fonts.medium, fontSize: 11 },
+  headerActions: { width: 124, alignItems: 'flex-end', gap: 9, paddingTop: 8 },
+  languageRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  languageItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  languageText: { color: colors.muted, fontFamily: Fonts.semiBold, fontSize: 12 },
   languageActive: { color: colors.primary },
-  languageDivider: { color: '#94A3B8', fontSize: 14 },
-  networkChip: { backgroundColor: colors.primaryLight, borderRadius: 18, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 11, paddingVertical: 8, gap: 6 },
+  languageDivider: { color: '#94A3B8', fontSize: 12 },
+  networkChip: { width: 124, backgroundColor: colors.primaryLight, borderRadius: 18, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 8, gap: 5 },
   onlineDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.accent },
-  networkText: { color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 11 },
+  networkText: { flex: 1, color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 10 },
   bottomNav: { minHeight: 72, paddingTop: 8, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', justifyContent: 'space-around' },
   tabButton: { minWidth: 70, minHeight: 60, alignItems: 'center', justifyContent: 'flex-start', gap: 2 },
   tabLabel: { color: colors.muted, fontFamily: Fonts.medium, fontSize: 12 },

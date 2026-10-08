@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { FontAwesome6, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useCallback, useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -65,8 +65,8 @@ function HomeContent() {
                 <Text style={styles.metricSupporting}>2,822 central archive demo records</Text>
               </View>
               <View style={styles.speciesGrid}>
-                <SpeciesMetric icon="paw-outline" label="Cattle" value={cattleCount} color={colors.primary} />
-                <SpeciesMetric icon="ellipse-outline" label="Buffalo" value={buffaloCount} color={colors.blue} />
+                <SpeciesMetric species="Cattle" label="Cattle" value={cattleCount} color={colors.primary} />
+                <SpeciesMetric species="Buffalo" label="Buffalo" value={buffaloCount} color={colors.blue} />
               </View>
             </View>
             <View style={styles.syncBanner}>
@@ -101,10 +101,10 @@ function HomeContent() {
   );
 }
 
-function SpeciesMetric({ icon, label, value, color }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: number; color: string }) {
+function SpeciesMetric({ species, label, value, color }: { species: Animal['animal_type']; label: string; value: number; color: string }) {
   return (
     <View style={styles.speciesMetric}>
-      <Ionicons name={icon} size={26} color={color} />
+      {species === 'Cattle' ? <MaterialCommunityIcons name="cow" size={29} color={color} /> : <FontAwesome6 name="cow" size={27} color={color} />}
       <Text style={styles.speciesLabel}>{label}</Text>
       <Text style={[styles.speciesValue, { color }]}>{value}</Text>
     </View>
@@ -119,7 +119,7 @@ function ActionTile({ icon, title, description, background, lightText = false, o
         <Text style={[styles.actionTitle, lightText && styles.actionLightText]}>{title}</Text>
         <Text style={[styles.actionDescription, lightText && styles.actionLightText]}>{description}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={28} color={lightText ? colors.surface : '#7890A4'} />
+      <View style={styles.actionChevron}><Ionicons name="chevron-forward" size={28} color={lightText ? colors.surface : '#7890A4'} /></View>
     </Pressable>
   );
 }
@@ -128,7 +128,7 @@ function RecentAnimalCard({ animal, onPress }: { animal: Animal; onPress: () => 
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.recentCard, pressed && styles.tilePressed]}>
       <View style={styles.recentPhotoWrap}>
-        <AnimalPhoto animal={animal} size={108} rounded={false} />
+        <AnimalPhoto animal={animal} size={108} rounded={false} style={styles.recentPhoto} />
         <View style={[styles.typeTag, animal.animal_type === 'Buffalo' && styles.typeTagBlue]}><Text style={[styles.typeTagText, animal.animal_type === 'Buffalo' && styles.typeTagTextBlue]}>{animal.animal_type}</Text></View>
       </View>
       <View style={styles.recentInfo}>
@@ -162,11 +162,12 @@ const styles = StyleSheet.create({
   syncBanner: { backgroundColor: colors.warningLight, borderRadius: 12, minHeight: 43, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, marginTop: 8 },
   syncText: { color: colors.warning, fontFamily: Fonts.semiBold, fontSize: 15 },
   actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
-  actionTile: { width: '47.7%', minHeight: 126, borderRadius: 14, padding: 15, justifyContent: 'space-between', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+  actionTile: { width: '47.7%', minHeight: 126, borderRadius: 14, padding: 15, position: 'relative', flexDirection: 'column', alignItems: 'flex-start', shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
   actionIcon: { width: 44, height: 44, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
   actionIconLight: { backgroundColor: colors.surface },
   actionIconDark: { backgroundColor: '#0F2D4A' },
   actionCopy: { width: '100%', gap: 7, paddingTop: 10, paddingRight: 4 },
+  actionChevron: { position: 'absolute', top: 18, right: 15 },
   actionTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 15 },
   actionDescription: { color: '#526A84', fontFamily: Fonts.regular, fontSize: 12, lineHeight: 18 },
   actionLightText: { color: colors.surface },
@@ -179,6 +180,7 @@ const styles = StyleSheet.create({
   recentContent: { gap: 10, paddingHorizontal: 2 },
   recentCard: { width: 182, overflow: 'hidden', borderRadius: 13, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
   recentPhotoWrap: { height: 108, position: 'relative', backgroundColor: colors.primaryLight },
+  recentPhoto: { width: '100%', height: 108 },
   typeTag: { position: 'absolute', top: 7, right: 7, backgroundColor: colors.primaryLight, borderRadius: 13, paddingHorizontal: 9, paddingVertical: 5 },
   typeTagBlue: { backgroundColor: colors.blueLight },
   typeTagText: { color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 11 },
