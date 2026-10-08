@@ -1,0 +1,38 @@
+{
+  "package": "@fastshot/auth",
+  "version": "1.2.3",
+  "filename": "fastshot-auth-1.2.3.tgz",
+  "sha256": "151b1e35cd3a2400e8f2fd1d0ba62e6489d2d103d6b83842c7ece9e3983bfc97",
+  "integrity": "sha512-NrpDBmmVo/V9S5FHERrH2ReWdAVwoQ3p1sHFGDU7JChCo07dxQsLGTJAlYz3Z8jhMoTge7a+lZESOwqLzrkDRw==",
+  "source_sha256": "264ceee37375fbd12dc62a0e928f35f02af790e6fa8175c92c3bfc26d1ecb82e",
+  "expo_peers": {
+    "54": {
+      "expo-crypto": "~15.0.8",
+      "expo-secure-store": "~15.0.8"
+    },
+    "55": {
+      "expo-crypto": "~55.0.8",
+      "expo-secure-store": "~55.0.8"
+    },
+    "56": {
+      "expo-crypto": "~56.0.3",
+      "expo-secure-store": "~56.0.3"
+    },
+    "57": {
+      "expo-crypto": "~57.0.2",
+      "expo-secure-store": "~57.0.3"
+    }
+  },
+  "trusted_legacy_archives": {
+    "file:vendor/fastshot-auth-1.2.0.tgz": [
+      "ef067d4b8404d418cfa18a952fd82bb89555291c003b19f9c539d9fea8e9c411",
+      "25a2200f541f7d64341b1508f177c0e24902f5dca3111639d2864cb246f9147d"
+    ],
+    "file:vendor/fastshot-auth-1.2.1.tgz": [
+      "1cf5babab72ebbbd8ce94f581a7acd26a9e222abd2dbfbcf7f1cf3c7eb02a34d"
+    ],
+    "file:vendor/fastshot-auth-1.2.2.tgz": [
+      "d9789eb32e7225015ca9a5c992bc086837591d853e80fb7e3a937923fdd409e4"
+    ]
+  }
+}

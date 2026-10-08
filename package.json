@@ -18,6 +18,7 @@
     "@react-navigation/native": "^7.1.6",
     "expo": "~57.0.20",
     "expo-blur": "~57.0.2",
+    "expo-clipboard": "~57.0.2",
     "expo-constants": "~57.0.17",
     "expo-file-system": "~57.0.6",
     "expo-font": "~57.0.3",
@@ -78,5 +79,8 @@
       "^@/(.*)$": "<rootDir>/$1"
     }
   },
-  "private": true
+  "private": true,
+  "fastshot": {
+    "sampleData": true
+  }
 }
