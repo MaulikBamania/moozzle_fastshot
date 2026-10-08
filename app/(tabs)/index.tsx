@@ -30,6 +30,8 @@ export default function HomeScreen() {
 function HomeContent() {
   const animals = useAppStore((state) => state.animals);
   const language = useAppStore((state) => state.language);
+  const offlineMode = useAppStore((state) => state.offlineMode);
+  const pendingSyncQueue = useAppStore((state) => state.pendingSyncQueue);
   const setLanguage = useAppStore((state) => state.setLanguage);
   const recentAnimals = useMemo(() => animals.slice(0, 3), [animals]);
   const cattleCount = useMemo(() => animals.filter((item) => item.animal_type === 'Cattle').length, [animals]);
@@ -42,13 +44,18 @@ function HomeContent() {
   const openIdentify = useCallback(() => router.replace('/(tabs)/identify' as never), []);
   const openRecords = useCallback(() => router.replace('/(tabs)/records' as never), []);
   const openVerify = useCallback(() => router.replace('/(tabs)/verify' as never), []);
+  const openSync = useCallback(() => router.push('/sync'), []);
+  const openPerformance = useCallback(() => router.push('/performance'), []);
+  const openApiDocs = useCallback(() => router.push('/api-docs'), []);
+  const openAbout = useCallback(() => router.push('/about'), []);
   const openRecentRecords = useCallback(() => router.replace('/(tabs)/records' as never), []);
   const openAnimal = useCallback((id: string) => router.push(`/animal/${id}`), []);
+  const pendingCount = pendingSyncQueue.animalRecords + pendingSyncQueue.muzzleImages + pendingSyncQueue.aiHealthEntries;
 
   return (
     <AppScreen>
       <View style={styles.screenBody}>
-        <AppHeader language={language} onLanguageChange={handleLanguageChange} />
+        <AppHeader language={language} onLanguageChange={handleLanguageChange} offline={offlineMode} onNetworkPress={openSync} />
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
           showsVerticalScrollIndicator={false}
@@ -70,17 +77,26 @@ function HomeContent() {
                 <SpeciesMetric species="Buffalo" label="Buffalo" value={buffaloCount} color={colors.blue} />
               </View>
             </View>
-            <View style={styles.syncBanner}>
+            <Pressable accessibilityRole="button" onPress={openSync} style={({ pressed }) => [styles.syncBanner, pressed && styles.tilePressed]}>
               <Ionicons name="sync-outline" size={22} color={colors.warning} />
-              <Text style={styles.syncText}>0 Pending Offline Sync</Text>
-            </View>
+              <Text style={styles.syncText}>{pendingCount} Pending Offline Sync</Text>
+              <Ionicons name="chevron-forward" size={17} color={colors.warning} />
+            </Pressable>
           </Card>
 
           <View style={styles.actionGrid}>
             <ActionTile icon="camera" title={tr(language, 'register')} description="Enrol new cattle/buffalo with 3-5 muzzle scans." background={colors.primary} lightText onPress={openRegister} />
             <ActionTile icon="biometric-scan" title={tr(language, 'identifyAnimal')} description="Scan muzzle to find 12-digit ID (1:N Search)." background={colors.blue} lightText onPress={openIdentify} />
             <ActionTile icon="document-text-outline" title={tr(language, 'animalRecords')} description="Browse 20+ demo animals, health & AI records." background={colors.surface} onPress={openRecords} />
-            <ActionTile icon="shield-checkmark" title={tr(language, 'verifyAnimal')} description="1:1 Verification against known MOOZZLE ID." background="#2F8B59" lightText onPress={openVerify} />
+            <ActionTile icon="sync-outline" title="SYNC DATA" description="Upload queued records and muzzle images securely." background={colors.warning} lightText onPress={openSync} />
+          </View>
+
+          <SectionTitle title="Field Console" />
+          <View style={styles.quickGrid}>
+            <QuickLink icon="shield-checkmark-outline" title={tr(language, 'verifyAnimal')} detail="1:1 biometric verification" tone="green" onPress={openVerify} />
+            <QuickLink icon="analytics-outline" title="PERFORMANCE" detail="Benchmarks and field trials" tone="blue" onPress={openPerformance} />
+            <QuickLink icon="code-slash-outline" title="API CONSOLE" detail="Inspect REST demo endpoints" tone="blue" onPress={openApiDocs} />
+            <QuickLink icon="information-circle-outline" title="ABOUT MOOZZLE" detail="Architecture and safeguards" tone="green" onPress={openAbout} />
           </View>
 
           <View style={styles.tipBanner}>
@@ -125,6 +141,17 @@ function ActionTile({ icon, title, description, background, lightText = false, o
   );
 }
 
+function QuickLink({ icon, title, detail, tone, onPress }: { icon: keyof typeof Ionicons.glyphMap; title: string; detail: string; tone: 'green' | 'blue'; onPress: () => void }) {
+  const accent = tone === 'blue' ? colors.blue : colors.primary;
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.quickLink, pressed && styles.tilePressed]}>
+      <View style={[styles.quickIcon, { backgroundColor: tone === 'blue' ? colors.blueLight : colors.primaryLight }]}><Ionicons name={icon} size={20} color={accent} /></View>
+      <View style={styles.quickCopy}><Text style={styles.quickTitle}>{title}</Text><Text numberOfLines={2} style={styles.quickDetail}>{detail}</Text></View>
+      <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+    </Pressable>
+  );
+}
+
 function RecentAnimalCard({ animal, onPress }: { animal: Animal; onPress: () => void }) {
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.recentCard, pressed && styles.tilePressed]}>
@@ -163,6 +190,12 @@ const styles = StyleSheet.create({
   syncBanner: { backgroundColor: colors.warningLight, borderRadius: 12, minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 9, marginTop: 5 },
   syncText: { color: colors.warning, fontFamily: Fonts.semiBold, fontSize: 13 },
   actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  quickLink: { width: '47.5%', minHeight: 78, borderRadius: 13, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  quickIcon: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  quickCopy: { flex: 1, gap: 3 },
+  quickTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 11 },
+  quickDetail: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 9.5, lineHeight: 13 },
   actionTile: { width: '47.5%', height: 118, borderRadius: 14, padding: 10, position: 'relative', flexDirection: 'column', alignItems: 'flex-start', shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
   actionIcon: { width: 36, height: 36, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   actionIconLight: { backgroundColor: colors.surface },

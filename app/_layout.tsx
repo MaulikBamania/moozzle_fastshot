@@ -31,6 +31,10 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="register" options={{ presentation: 'card' }} />
           <Stack.Screen name="animal/[id]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="sync" options={{ presentation: 'card' }} />
+          <Stack.Screen name="performance" options={{ presentation: 'card' }} />
+          <Stack.Screen name="api-docs" options={{ presentation: 'card' }} />
+          <Stack.Screen name="about" options={{ presentation: 'card' }} />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

@@ -55,6 +55,39 @@ export interface LivestockServiceRecord {
   metadata: Record<string, string>;
 }
 
+export interface SyncQueue {
+  animalRecords: number;
+  muzzleImages: number;
+  aiHealthEntries: number;
+}
+
+export interface SyncSummary {
+  recordsUploaded: number;
+  imagesUploaded: number;
+  errors: number;
+  completedAt: string;
+}
+
+export interface ValidationTrial {
+  id: string;
+  location: string;
+  date: string;
+  breed: string;
+  animal_type: AnimalType;
+  animals_count: number;
+  images_per_animal: number;
+  verification_attempts: number;
+  identification_attempts: number;
+  correct_matches: number;
+  false_acceptances: number;
+  false_rejections: number;
+  far: number;
+  frr: number;
+  accuracy: number;
+  device_model: string;
+  created_at: string;
+}
+
 export interface Preferences {
   [key: string]: unknown;
 }

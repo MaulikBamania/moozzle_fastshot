@@ -52,6 +52,7 @@ const translations: Record<Language, Record<string, string>> = {
     identifyAnimal: 'IDENTIFY ANIMAL',
     animalRecords: 'ANIMAL RECORDS',
     verifyAnimal: 'VERIFY ANIMAL',
+    offline: 'OFFLINE MODE',
     next: 'Next',
     retry: 'Retry',
     online: 'ONLINE • Sample Data',
@@ -66,6 +67,7 @@ const translations: Record<Language, Record<string, string>> = {
     identifyAnimal: 'पशु पहचानें',
     animalRecords: 'पशु रिकॉर्ड',
     verifyAnimal: 'पशु सत्यापित करें',
+    offline: 'ऑफलाइन मोड',
     next: 'आगे',
     retry: 'फिर कोशिश करें',
     online: 'ऑनलाइन · सैंपल डेटा',
@@ -80,6 +82,7 @@ const translations: Record<Language, Record<string, string>> = {
     identifyAnimal: 'પશુ ઓળખો',
     animalRecords: 'પશુ રેકોર્ડ',
     verifyAnimal: 'પશુ ચકાસો',
+    offline: 'ઓફલાઇન મોડ',
     next: 'આગળ',
     retry: 'ફરી પ્રયાસ કરો',
     online: 'ઓનલાઇન · સેમ્પલ ડેટા',
@@ -163,7 +166,7 @@ export function BiometricScanIcon({ size = 28, color = colors.surface }: { size?
   );
 }
 
-export function AppHeader({ language, onLanguageChange }: { language: Language; onLanguageChange: (value: Language) => void }) {
+export function AppHeader({ language, onLanguageChange, onNetworkPress, offline = false }: { language: Language; onLanguageChange: (value: Language) => void; onNetworkPress?: () => void; offline?: boolean }) {
   return (
     <View style={styles.appHeader}>
       <View style={styles.brandRow}>
@@ -189,10 +192,34 @@ export function AppHeader({ language, onLanguageChange }: { language: Language; 
             </View>
           ))}
         </View>
-        <View style={styles.networkChip}>
-          <View style={styles.onlineDot} />
-          <Text adjustsFontSizeToFit numberOfLines={1} style={styles.networkText}>{tr(language, 'online')}</Text>
-        </View>
+        {onNetworkPress ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Open offline sync manager" onPress={onNetworkPress} style={[styles.networkChip, offline && styles.networkChipOffline]}>
+            <View style={[styles.onlineDot, offline && styles.offlineDot]} />
+            <Text adjustsFontSizeToFit numberOfLines={1} style={[styles.networkText, offline && styles.networkTextOffline]}>{tr(language, offline ? 'offline' : 'online')}</Text>
+            <Ionicons name="chevron-forward" size={13} color={offline ? colors.warning : colors.primary} />
+          </Pressable>
+        ) : (
+          <View style={[styles.networkChip, offline && styles.networkChipOffline]}>
+            <View style={[styles.onlineDot, offline && styles.offlineDot]} />
+            <Text adjustsFontSizeToFit numberOfLines={1} style={[styles.networkText, offline && styles.networkTextOffline]}>{tr(language, offline ? 'offline' : 'online')}</Text>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+export function PageHeader({ title, eyebrow, onBack }: { title: string; eyebrow?: string; onBack?: () => void }) {
+  return (
+    <View style={styles.pageHeader}>
+      {onBack ? (
+        <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={onBack} hitSlop={8} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={21} color={colors.text} />
+        </Pressable>
+      ) : null}
+      <View style={styles.pageHeaderCopy}>
+        {eyebrow ? <Text style={styles.pageHeaderEyebrow}>{eyebrow}</Text> : null}
+        <Text style={styles.pageHeaderTitle}>{title}</Text>
       </View>
     </View>
   );
@@ -401,8 +428,16 @@ const styles = StyleSheet.create({
   languageActive: { color: colors.primary },
   languageDivider: { color: '#94A3B8', fontSize: 12 },
   networkChip: { width: 132, backgroundColor: colors.primaryLight, borderRadius: 18, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 8, gap: 5 },
+  networkChipOffline: { backgroundColor: colors.warningLight },
   onlineDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.accent },
+  offlineDot: { backgroundColor: colors.warning },
   networkText: { flex: 1, color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 9.5, letterSpacing: -0.15 },
+  networkTextOffline: { color: colors.warning },
+  pageHeader: { minHeight: 62, paddingHorizontal: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  backButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border },
+  pageHeaderCopy: { flex: 1, gap: 2 },
+  pageHeaderEyebrow: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 11, letterSpacing: 1.1, textTransform: 'uppercase' },
+  pageHeaderTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 28, lineHeight: 32 },
   bottomNav: { minHeight: 72, paddingTop: 8, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', justifyContent: 'space-around' },
   tabButton: { minWidth: 70, minHeight: 60, alignItems: 'center', justifyContent: 'flex-start', gap: 2 },
   tabLabel: { color: colors.muted, fontFamily: Fonts.medium, fontSize: 12 },

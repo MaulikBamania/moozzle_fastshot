@@ -2,7 +2,16 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { appStorage, trackLoading, useStorageStatus } from './storage';
 import { sampleAnimals, sampleServiceRecords, sampleTemplates } from './sampleData';
-import type { Animal, BiometricTemplate, Language, LivestockServiceRecord, Preferences } from './types';
+import type {
+  Animal,
+  BiometricTemplate,
+  Language,
+  LivestockServiceRecord,
+  Preferences,
+  SyncQueue,
+  SyncSummary,
+  ValidationTrial,
+} from './types';
 
 interface PreferencesSlice {
   preferences: Preferences;
@@ -13,12 +22,19 @@ interface AnimalActions {
   addServiceRecord: (record: LivestockServiceRecord) => void;
   retireAnimal: (moozzleId: string, reason: string, notes: string) => void;
   setLanguage: (language: Language) => void;
+  setOfflineMode: (enabled: boolean) => void;
+  completeSync: (summary: SyncSummary) => void;
+  addValidationTrial: (trial: ValidationTrial) => void;
 }
 
 export interface AppStore extends PreferencesSlice, AnimalActions {
   animals: Animal[];
   biometricTemplates: BiometricTemplate[];
   serviceRecords: LivestockServiceRecord[];
+  validationTrials: ValidationTrial[];
+  pendingSyncQueue: SyncQueue;
+  lastSyncSummary: SyncSummary | null;
+  offlineMode: boolean;
   language: Language;
 }
 
@@ -31,6 +47,10 @@ export const useAppStore = create<AppStore>()(
       animals: sampleAnimals,
       biometricTemplates: sampleTemplates,
       serviceRecords: sampleServiceRecords,
+      validationTrials: [],
+      pendingSyncQueue: { animalRecords: 12, muzzleImages: 8, aiHealthEntries: 4 },
+      lastSyncSummary: null,
+      offlineMode: false,
       language: 'EN',
       addAnimal: (animal, template) =>
         set((state) => ({
@@ -55,6 +75,13 @@ export const useAppStore = create<AppStore>()(
           ),
         })),
       setLanguage: (language) => set({ language }),
+      setOfflineMode: (enabled) => set({ offlineMode: enabled }),
+      completeSync: (summary) =>
+        set({
+          pendingSyncQueue: { animalRecords: 0, muzzleImages: 0, aiHealthEntries: 0 },
+          lastSyncSummary: summary,
+        }),
+      addValidationTrial: (trial) => set((state) => ({ validationTrials: [trial, ...state.validationTrials] })),
     }),
     {
       name: 'app-storage',
@@ -64,6 +91,10 @@ export const useAppStore = create<AppStore>()(
         animals: state.animals,
         biometricTemplates: state.biometricTemplates,
         serviceRecords: state.serviceRecords,
+        validationTrials: state.validationTrials,
+        pendingSyncQueue: state.pendingSyncQueue,
+        lastSyncSummary: state.lastSyncSummary,
+        offlineMode: state.offlineMode,
         language: state.language,
       }),
       onRehydrateStorage: trackLoading,
