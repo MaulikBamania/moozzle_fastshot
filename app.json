@@ -2,7 +2,7 @@
   "expo": {
     "name": "Moozzle",
     "slug": "moozzle",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "fastshot-d14295cd-7a19-4e90-a3ea-49a50086cf94",
@@ -16,7 +16,8 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#10192b"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "versionCode": 2
     },
     "web": {
       "bundler": "metro",

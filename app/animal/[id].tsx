@@ -271,11 +271,13 @@ function AnimalProfileContent() {
     <View style={[styles.page, { paddingTop: insets.top }]}>
       <View style={styles.topBar}>
         <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/records'))} style={styles.back}><Ionicons name="chevron-back" size={22} color={colors.text} /></Pressable>
-        <View style={styles.flex}>
-          <Text style={styles.topKicker}>MOOZZLE ID</Text>
-          <Text selectable style={styles.topId}>{formatMoozzleId(animal.moozzle_id)}</Text>
+        <View style={styles.topCopy}>
+          <Text numberOfLines={1} style={styles.topKicker}>MOOZZLE ID</Text>
+          <Text selectable numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.topId}>{formatMoozzleId(animal.moozzle_id)}</Text>
         </View>
-        <Pill label={animal.approval_status} tone={approvalTone(animal.approval_status)} />
+        <View style={styles.topStatus}>
+          <Pill label={animal.approval_status} tone={approvalTone(animal.approval_status)} />
+        </View>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabs}>
         {(Object.keys(TAB_LABELS) as TabKey[]).map((key) => (
@@ -558,7 +560,9 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 10 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   topBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10 },
-  back: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  topCopy: { flex: 1, minWidth: 0 },
+  topStatus: { flexShrink: 0, maxWidth: '40%' },
+  back: { width: 44, height: 44, flexShrink: 0, borderRadius: 22, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   topKicker: { color: colors.muted, fontFamily: Fonts.bold, fontSize: 10, letterSpacing: 1 },
   topId: { color: colors.text, fontFamily: Fonts.bold, fontSize: 20, fontVariant: ['tabular-nums'], letterSpacing: 0.6 },
   tabScroll: { flexGrow: 0, borderBottomWidth: 1, borderBottomColor: colors.border },

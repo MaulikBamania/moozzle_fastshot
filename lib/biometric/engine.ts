@@ -3,7 +3,6 @@
  * 1. normalise the capture, 2. AI muzzle detection + bounding box (Fastshot AI Gateway vision),
  * 3. crop, 4. measured quality filter, 5. 256-D texture embedding, 6. server-side cosine search (pgvector).
  */
-import { analyzeImage } from '@fastshot/ai';
 import * as Crypto from 'expo-crypto';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import UPNG from 'upng-js';
@@ -18,7 +17,11 @@ import type {
   ValidationPayload,
   VerifyResult,
 } from '@/store/types';
+import { BiometricError } from './errors';
 import { base64ToBytes, downsample, embeddingLiteral, extractEmbedding, measureQuality, qualityScore, rgbaToGray } from './features';
+import { analyzeBase64Image } from './vision';
+
+export { BiometricError };
 
 export const CAPTURE_BUCKET = 'muzzle-captures';
 const NORMALISED_WIDTH = 960;
@@ -48,8 +51,6 @@ Inspect the photo and answer ONLY with minified JSON, no prose, using exactly th
 Rules: muzzle_detected is true only if the bare nose pad (nasal planum with nostrils) of a bovine is visible.
 box is the tight bounding box of that nose pad as fractions of image width/height (0-1, origin top-left); use null when not detected.
 pattern_visible is true only if the ridge/groove/bead skin texture of the nose pad can be seen. notes: under 15 words.`;
-
-export class BiometricError extends Error {}
 
 function parseDetection(raw: string): MuzzleDetection {
   const match = raw.match(/\{[\s\S]*\}/);
@@ -106,7 +107,7 @@ export async function analyzeMuzzle(uri: string, onStage?: (stage: PipelineStage
   if (!normalized.base64) throw new BiometricError('The capture could not be encoded on this device.');
 
   onStage?.('detect');
-  const raw = await analyzeImage({ imageUrl: normalized.uri, prompt: DETECT_PROMPT, injectBranding: false });
+  const raw = await analyzeBase64Image({ base64: normalized.base64, mimeType: 'image/jpeg', prompt: DETECT_PROMPT });
   const detection = parseDetection(raw);
 
   let metrics: QualityMetrics | null = null;
@@ -168,12 +169,23 @@ export async function uploadCapture(analysis: MuzzleAnalysis): Promise<string> {
   const userId = await currentUserId();
   const path = `${userId}/${Crypto.randomUUID()}.jpg`;
   const bytes = base64ToBytes(analysis.imageBase64);
-  const { error } = await supabase.storage.from(CAPTURE_BUCKET).upload(path, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, {
-    contentType: 'image/jpeg',
-    upsert: false,
-  });
-  if (error) throw error;
-  return path;
+  // Raw ArrayBuffer body (Supabase's documented React Native path) — never FormData/Blob, which
+  // Android's native fetch rejects with "Unsupported FormDataPart implementation".
+  const body = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const { error } = await supabase.storage.from(CAPTURE_BUCKET).upload(path, body, { contentType: 'image/jpeg', upsert: false });
+      // A retry after a lost response finds the object already stored — that is a success.
+      if (!error || (attempt > 1 && /already exists|duplicate/i.test(error.message))) return path;
+      lastError = error;
+    } catch (error) {
+      lastError = error;
+    }
+    console.error(`Capture upload attempt ${attempt} failed`, lastError);
+  }
+  const reason = lastError && typeof lastError === 'object' && 'message' in lastError ? String((lastError as { message: unknown }).message) : '';
+  throw new BiometricError(`The capture could not be uploaded${reason ? `: ${reason}` : ''}. Check your connection and retry.`);
 }
 
 function qualityPayload(analysis: MuzzleAnalysis) {

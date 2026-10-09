@@ -227,12 +227,11 @@ function RegisterContent() {
     <AppScreen>
       <View style={styles.pageBody}>
         <View style={styles.topBar}>
-          <Pressable accessibilityRole="button" onPress={() => setShowCancel(true)} style={styles.cancelButton}>
-            <Ionicons name="chevron-back" size={22} color={colors.text} />
-            <Text style={styles.cancelText}>Cancel Enrolment</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Cancel enrolment" onPress={() => setShowCancel(true)} hitSlop={6} style={styles.cancelButton}>
+            <Ionicons name="chevron-back" size={20} color={colors.primary} />
+            <Text numberOfLines={1} style={styles.cancelText}>Cancel Enrolment</Text>
           </Pressable>
-          <Text style={styles.topTitle}>Register Animal</Text>
-          <View style={styles.topSpacer} />
+          <Text accessibilityRole="header" numberOfLines={2} style={styles.topTitle}>Register Animal</Text>
         </View>
         <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={styles.flex} contentContainerStyle={styles.content}>
           <WizardStepper step={step} />
@@ -490,11 +489,12 @@ function SummaryItem({ label, value }: { label: string; value: string }) { retur
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   pageBody: { flex: 1 },
-  topBar: { minHeight: 55, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
-  cancelButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 2 },
-  cancelText: { color: colors.text, fontFamily: Fonts.medium, fontSize: 13 },
-  topTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 16 },
-  topSpacer: { width: 108 },
+  // Stacked header: the cancel link and the title sit on separate rows so they can never collide,
+  // whatever the viewport width or the phone's font scale.
+  topBar: { paddingHorizontal: 14, paddingTop: 4, paddingBottom: 12, gap: 2, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
+  cancelButton: { minHeight: 44, alignSelf: 'flex-start', maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: -4, paddingRight: 8 },
+  cancelText: { flexShrink: 1, color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 14 },
+  topTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 22, lineHeight: 28 },
   content: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 30, gap: 18 },
   stepper: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 2 },
   stepItem: { flex: 1, alignItems: 'center', position: 'relative', gap: 5 },

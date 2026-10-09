@@ -350,10 +350,10 @@ export function StackScreen({ title, eyebrow, destination, children, right }: { 
           <Ionicons name="arrow-back" size={21} color={colors.text} />
         </Pressable>
         <View style={frame.copy}>
-          {eyebrow ? <Text style={frame.eyebrow}>{eyebrow}</Text> : null}
-          <Text style={frame.title}>{title}</Text>
+          {eyebrow ? <Text numberOfLines={1} style={frame.eyebrow}>{eyebrow}</Text> : null}
+          <Text accessibilityRole="header" numberOfLines={2} style={frame.title}>{title}</Text>
         </View>
-        {right}
+        {right ? <View style={frame.right}>{right}</View> : null}
       </View>
       <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" style={frame.flex} contentContainerStyle={[frame.content, { paddingBottom: insets.bottom + 32 }]}>
         {children}
@@ -367,9 +367,10 @@ const frame = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   header: { minHeight: 64, paddingHorizontal: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
-  back: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border },
-  copy: { flex: 1, gap: 1 },
+  back: { width: 44, height: 44, flexShrink: 0, borderRadius: 22, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border },
+  copy: { flex: 1, minWidth: 0, gap: 1 },
+  right: { flexShrink: 0, maxWidth: '45%' },
   eyebrow: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 11, letterSpacing: 1.1, textTransform: 'uppercase' },
-  title: { color: colors.text, fontFamily: Fonts.bold, fontSize: 22 },
+  title: { color: colors.text, fontFamily: Fonts.bold, fontSize: 22, lineHeight: 27 },
   content: { padding: 16, gap: 12, maxWidth: 860, width: '100%', alignSelf: 'center' },
 });
