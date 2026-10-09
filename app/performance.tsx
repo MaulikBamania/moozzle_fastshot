@@ -17,7 +17,8 @@ import {
 import { Fonts } from '@/constants/Typography';
 import { useAppStore } from '@/store/useAppStore';
 import { useBovineData } from '@/store/useBovineStore';
-import type { AnimalType, ValidationTrial } from '@/store/types';
+import { LiveValidation, ModelMatrix, SampleSizeCard } from '@/components/validation-suite';
+import type { AnimalType, ValidationPayload, ValidationTrial } from '@/store/types';
 
 interface ValidationDraft {
   location: string;
@@ -33,14 +34,7 @@ interface ValidationDraft {
   deviceModel: string;
 }
 
-const BENCHMARKS = [
-  ['FAR', 'Not yet validated'],
-  ['FRR', 'Not yet validated'],
-  ['Precision', 'Not yet validated'],
-  ['Recall', 'Not yet validated'],
-  ['F1 Score', 'Not yet validated'],
-  ['Recognition latency', 'Demo value'],
-] as const;
+
 
 
 export default function PerformanceScreen() {
@@ -63,6 +57,7 @@ function PerformanceContent() {
     ['Retired', String(animals.filter((item) => item.current_status === 'Retired').length)],
   ] as const, [animals]);
   const addValidationTrial = useAppStore((state) => state.addValidationTrial);
+  const [validation, setValidation] = useState<ValidationPayload | null>(null);
   const [animalType, setAnimalType] = useState<AnimalType>('Cattle');
   const [draft, setDraft] = useState<ValidationDraft>(createInitialDraft);
   const [formError, setFormError] = useState('');
@@ -79,7 +74,11 @@ function PerformanceContent() {
     const frr = verification > 0 ? (falseRejections / verification) * 100 : 0;
     const accuracyDenominator = verification + identification;
     const accuracy = accuracyDenominator > 0 ? (correct / accuracyDenominator) * 100 : 0;
-    return { far, frr, accuracy };
+    // Correct matches are true positives; false acceptances are false positives; false rejections are false negatives.
+    const precision = correct + falseAcceptances > 0 ? (correct / (correct + falseAcceptances)) * 100 : 0;
+    const recall = correct + falseRejections > 0 ? (correct / (correct + falseRejections)) * 100 : 0;
+    const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
+    return { far, frr, accuracy, precision, recall, f1 };
   }, [draft]);
 
   const report = useMemo(() => {
@@ -174,36 +173,29 @@ function PerformanceContent() {
 
   return (
     <AppScreen scroll>
-      <PageHeader eyebrow="Admin dashboard" title="Performance" onBack={handleBack} />
+      <PageHeader eyebrow="Biometric engine" title="Model Strategy" onBack={handleBack} />
       <View style={styles.content}>
         <Card style={styles.heroCard}>
           <View style={styles.heroIcon}><Ionicons name="analytics-outline" size={26} color={colors.primary} /></View>
           <View style={styles.heroCopy}>
             <Text style={styles.eyebrow}>Evidence first</Text>
-            <Text style={styles.heroTitle}>Performance & Field Validation</Text>
-            <Text selectable style={styles.heroText}>Archive figures are counted live from your Supabase records. Biometric benchmarks stay unpopulated until representative field testing is recorded.</Text>
+            <Text style={styles.heroTitle}>Model Strategy & Field Validation</Text>
+            <Text selectable style={styles.heroText}>Candidate architectures, live FAR/FRR from enrolled templates, the 99.99% research benchmark and manual field-trial entry. No accuracy figure is shown that was not measured.</Text>
           </View>
         </Card>
+
+        <SectionHeading eyebrow="Architecture" title="Model comparison matrix" />
+        <ModelMatrix measuredMs={validation?.scans.avg_ms ?? null} />
+
+        <SectionHeading eyebrow="Live engine" title="FAR / FRR validation" />
+        <LiveValidation onLoaded={setValidation} />
+
+        <SectionHeading eyebrow="Research target" title="99.99% benchmark sample size" />
+        <SampleSizeCard impostorTrials={validation ? validation.pairs.filter((pair) => pair[0] === 0).length : null} />
 
         <SectionHeading eyebrow="Your cloud archive" title="Archive statistics" />
         <Card style={styles.statsCard}>
           {archiveStats.map(([label, value], index) => <StatRow key={label} label={label} value={value} accent={index === 0} />)}
-        </Card>
-
-        <SectionHeading eyebrow="Benchmarks" title="Prototype baseline" />
-        <Card style={styles.benchmarkCard}>
-          <View style={styles.disclaimerBox}>
-            <Ionicons name="information-circle-outline" size={20} color={colors.blue} />
-            <Text selectable style={styles.disclaimer}>Validation results will be populated after field testing.</Text>
-          </View>
-          <View style={styles.benchmarkGrid}>
-            {BENCHMARKS.map(([label, value]) => (
-              <View style={styles.benchmarkItem} key={label}>
-                <Text style={styles.benchmarkLabel}>{label}</Text>
-                <Text style={styles.benchmarkValue}>{value}</Text>
-              </View>
-            ))}
-          </View>
         </Card>
 
         <SectionHeading eyebrow="Section 35" title="Field validation" />
@@ -242,6 +234,11 @@ function PerformanceContent() {
               <CalculatedMetric label="FAR" value={metrics.far} />
               <CalculatedMetric label="FRR" value={metrics.frr} />
               <CalculatedMetric label="Accuracy" value={metrics.accuracy} />
+            </View>
+            <View style={styles.calculatedGrid}>
+              <CalculatedMetric label="Precision" value={metrics.precision} />
+              <CalculatedMetric label="Recall" value={metrics.recall} />
+              <CalculatedMetric label="F1 Score" value={metrics.f1} />
             </View>
           </View>
           {formError ? <Text selectable style={styles.errorText}>{formError}</Text> : null}

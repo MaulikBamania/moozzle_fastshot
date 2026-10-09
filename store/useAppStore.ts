@@ -58,7 +58,7 @@ function migrateDeviceState(persisted: unknown, version: number): AppStore {
       const a = op.animal;
       syncQueue.push({
         kind: 'animal', opId: op.opId, userId: op.userId, role: 'Field Worker', queuedAt: op.queuedAt,
-        payload: { id: a.id, moozzle_id: a.moozzle_id, species: a.species, breed: a.breed, sex: a.sex, age_years: a.age_years, owner_name: a.owner_name ?? '', owner_phone: a.owner_phone ?? '', farm_id: null, farm_name: a.farm_name ?? '', village: a.village ?? '', district: a.district ?? '', state: a.state ?? '', captured_images_count: a.captured_images_count ?? 5, quality_score: op.template.quality_score ?? 0.9, save_as_draft: false, source: 'offline-queue' },
+        payload: { id: a.id, moozzle_id: a.moozzle_id, species: a.species, breed: a.breed, sex: a.sex, age_years: a.age_years, owner_name: a.owner_name ?? '', owner_phone: a.owner_phone ?? '', farm_id: null, farm_name: a.farm_name ?? '', village: a.village ?? '', district: a.district ?? '', state: a.state ?? '', captured_images_count: a.captured_images_count ?? 5, quality_score: op.template.quality_score ?? 0.9, embeddings: [], image_paths: [], quality_scores: [], quality_metrics: [], save_as_draft: false, source: 'offline-queue' },
       });
     } else if (op.kind === 'service' && 'record' in op) {
       const r = op.record;

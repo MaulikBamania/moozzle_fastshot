@@ -4,6 +4,7 @@ import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CaptureImage } from '@/components/biometric-ui';
 import { FormSheet, SERVICE_FORMS, type FieldSpec, type FormSpec, type FormSubmit } from '@/components/record-forms';
 import { AnimalPhoto, approvalTone, Card, colors, DataGate, EmptyState, ErrorState, formatMoozzleId, Pill, PrimaryButton } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
@@ -394,7 +395,7 @@ function IdentityTab({ animal, role, canReview, canRetire, retireLabel, canTrans
   return (
     <View style={styles.stack}>
       <Card style={styles.hero}>
-        <AnimalPhoto animal={animal} size={92} />
+        {animal.reference_image_path ? <CaptureImage path={animal.reference_image_path} label="MUZZLE" size={92} /> : <AnimalPhoto animal={animal} size={92} />}
         <View style={styles.flex}>
           <Text style={styles.heroTitle}>{animal.breed} {animal.animal_type}</Text>
           <Text style={styles.heroMeta}>{animal.sex} · {animal.age_years} years</Text>
@@ -412,7 +413,7 @@ function IdentityTab({ animal, role, canReview, canRetire, retireLabel, canTrans
         <Detail label="Farm" value={animal.farm_name} />
         <Detail label="Location" value={[animal.village, animal.district, animal.state].filter(Boolean).join(', ')} />
         <Detail label="Registered" value={new Date(animal.registration_date).toLocaleDateString()} />
-        <Detail label="Muzzle captures" value={`${animal.captured_images_count} images (template stored securely, not shown)`} />
+        <Detail label="Muzzle captures" value={`${animal.captured_images_count} images · ${animal.reference_image_path ? '256-D live-engine templates' : 'legacy record without live-engine templates'} (embeddings never shown)`} />
         {animal.owner_visible ? (
           <>
             <Detail label="Owner" value={animal.owner_name} />
@@ -425,6 +426,7 @@ function IdentityTab({ animal, role, canReview, canRetire, retireLabel, canTrans
       </Card>
       {openRequests > 0 ? <Text style={styles.muted}>{openRequests} request{openRequests === 1 ? '' : 's'} awaiting review for this animal.</Text> : null}
       <View style={styles.actions}>
+        {animal.current_status === 'Active' && animal.reference_image_path && role !== 'Insurance Officer' ? <PrimaryButton label="Verify 1:1 by Muzzle" icon="shield-checkmark-outline" variant="outline" onPress={() => router.push({ pathname: '/verify', params: { id: animal.moozzle_id } })} /> : null}
         {isCreator && animal.approval_status === 'Draft' && !animal.pending_sync ? <PrimaryButton label="Submit Draft for Approval" icon="send-outline" onPress={onSubmitDraft} /> : null}
         {canReview ? (
           <View style={styles.row}>

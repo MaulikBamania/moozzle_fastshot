@@ -6,6 +6,8 @@ import { supabase } from '@/lib/supabase';
 import { useAppStore } from './useAppStore';
 import { isOnlineNow, useConnectivity } from './useConnectivity';
 import type {
+  MatchCandidate,
+  QualityMetrics,
   Animal,
   AnimalRow,
   AnimalType,
@@ -68,6 +70,10 @@ export interface NewAnimalInput {
   state: string;
   capturedImages: number;
   qualityScore: number;
+  embeddings: string[];
+  imagePaths: string[];
+  qualityScores: number[];
+  qualityMetrics: QualityMetrics[];
   saveAsDraft: boolean;
 }
 
@@ -87,6 +93,11 @@ export interface RegisterResult {
   approvalStatus: string;
   duplicate: boolean;
   queued: boolean;
+  /** True when the server's 1:N search found this animal already registered; no new ID was issued. */
+  blocked: boolean;
+  match: MatchCandidate | null;
+  score: number | null;
+  templatesSearched: number | null;
 }
 
 const initialState: BovineState = {
@@ -322,16 +333,25 @@ function toRegisterPayload(input: NewAnimalInput): RegisterPayload {
     state: input.state.trim(),
     captured_images_count: input.capturedImages,
     quality_score: input.qualityScore,
+    embeddings: input.embeddings,
+    image_paths: input.imagePaths,
+    quality_scores: input.qualityScores,
+    quality_metrics: input.qualityMetrics,
     save_as_draft: input.saveAsDraft,
     source: 'moozzle-app',
   };
 }
 
 interface RegisterResponse {
-  id: string;
-  moozzle_id: string;
-  approval_status: string;
+  id?: string;
+  moozzle_id?: string;
+  approval_status?: string;
   duplicate: boolean;
+  blocked?: boolean;
+  match?: MatchCandidate;
+  review_candidate?: MatchCandidate | null;
+  score?: number;
+  templates_searched?: number;
 }
 
 export async function createAnimal(input: NewAnimalInput): Promise<RegisterResult> {
@@ -341,13 +361,26 @@ export async function createAnimal(input: NewAnimalInput): Promise<RegisterResul
   const queue = (): RegisterResult => {
     useAppStore.getState().enqueue({ kind: 'animal', opId: Crypto.randomUUID(), userId, role, queuedAt: new Date().toISOString(), payload: { ...payload, source: 'offline-queue' } });
     bump();
-    return { id: payload.id, moozzleId: payload.moozzle_id, approvalStatus: input.saveAsDraft ? 'Draft' : 'Queued', duplicate: false, queued: true };
+    return { id: payload.id, moozzleId: payload.moozzle_id, approvalStatus: input.saveAsDraft ? 'Draft' : 'Queued', duplicate: false, queued: true, blocked: false, match: null, score: null, templatesSearched: null };
   };
   if (!isOnlineNow()) return queue();
   try {
     const result = await rpc<RegisterResponse>('register_animal', { p: payload });
     await afterWrite();
-    return { id: result.id, moozzleId: result.moozzle_id, approvalStatus: result.approval_status, duplicate: result.duplicate, queued: false };
+    if (result.blocked) {
+      return { id: '', moozzleId: result.match?.moozzle_id ?? '', approvalStatus: 'Blocked', duplicate: true, queued: false, blocked: true, match: result.match ?? null, score: result.score ?? null, templatesSearched: result.templates_searched ?? null };
+    }
+    return {
+      id: result.id ?? payload.id,
+      moozzleId: result.moozzle_id ?? payload.moozzle_id,
+      approvalStatus: result.approval_status ?? 'Submitted',
+      duplicate: result.duplicate,
+      queued: false,
+      blocked: false,
+      match: result.review_candidate ?? null,
+      score: result.score ?? null,
+      templatesSearched: result.templates_searched ?? null,
+    };
   } catch (error) {
     if (isNetworkError(error)) {
       void useConnectivity.getState().check();
@@ -519,13 +552,19 @@ async function runSync(): Promise<SyncSummary> {
     try {
       if (op.kind === 'animal') {
         const result = await rpc<RegisterResponse>('register_animal', { p: op.payload }, op.payload.moozzle_id);
+        if (result.blocked || !result.moozzle_id) {
+          errors += 1;
+          useAppStore.getState().addFailed({ operation: op, error: `ANIMAL ALREADY REGISTERED as ${result.match?.moozzle_id ?? 'an existing ID'} (similarity ${result.score?.toFixed(3) ?? '—'}). No duplicate ID was issued.`, failedAt: new Date().toISOString(), revoked: false });
+          useAppStore.getState().removeQueued(op.opId);
+          continue;
+        }
         if (result.moozzle_id !== op.payload.moozzle_id) {
           replacedIds.set(op.payload.moozzle_id, result.moozzle_id);
           conflicts.push({ provisionalId: op.payload.moozzle_id, assignedId: result.moozzle_id, note: 'Provisional ID was already in use; the server issued a new permanent ID.' });
         }
         if (result.duplicate) conflicts.push({ provisionalId: op.payload.moozzle_id, assignedId: result.moozzle_id, note: 'Possible duplicate identity — sent for manual review instead of being merged.' });
         recordsUploaded += 1;
-        imagesUploaded += 1;
+        imagesUploaded += op.payload.image_paths?.length ?? 0;
       } else {
         await rpc<string>('add_service_record', { p: op.payload }, replacedIds.get(op.moozzleId) ?? op.moozzleId);
         recordsUploaded += 1;
@@ -585,6 +624,7 @@ function toAnimal(row: AnimalRow, owner: OwnerRow | undefined, pending = false):
     retire_reason: row.retire_reason ?? undefined,
     retire_date: row.retired_at ?? undefined,
     captured_images_count: row.captured_images_count,
+    reference_image_path: row.reference_image_path ?? null,
     created_by: row.user_id,
     created_at: row.created_at,
     updated_at: row.updated_at,

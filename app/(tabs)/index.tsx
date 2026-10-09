@@ -229,6 +229,12 @@ function Dashboard() {
         ))}
       </View>
 
+      <Text style={styles.sectionTitle}>Biometric tools</Text>
+      <View style={styles.actions}>
+        {canOpen('verify', role, session.permissions) ? <PrimaryButton label="VERIFY ANIMAL (1:1)" icon="shield-checkmark-outline" variant="soft" onPress={() => go('verify')} style={[styles.actionButton, wide && styles.actionButtonWide]} /> : null}
+        <PrimaryButton label="MODEL PERFORMANCE & BENCHMARKS" icon="analytics-outline" variant="soft" onPress={() => go('performance')} style={[styles.actionButton, wide && styles.actionButtonWide]} />
+      </View>
+
       {alerts.length > 0 ? (
         <>
           <View style={styles.sectionRow}>

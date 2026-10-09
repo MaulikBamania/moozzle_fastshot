@@ -146,7 +146,7 @@ export function formatMoozzleId(id: string): string {
   return id.replace(/(\d{4})(\d{4})(\d{4})/, '$1 $2 $3');
 }
 
-/** Species reference artwork (the prototype does not upload muzzle photos). */
+/** Species artwork, used where an animal has no live-engine muzzle reference capture. */
 export function getAnimalImageSource(animalType: Animal['animal_type'] | undefined): number {
   return animalType === 'Buffalo' ? murrahPhoto : girPhoto;
 }

@@ -32,6 +32,7 @@ export interface AnimalRow {
   approval_status: ApprovalStatus;
   duplicate_of: string | null;
   review_note: string | null;
+  reference_image_path?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -198,6 +199,8 @@ export interface Animal {
   retire_reason?: string;
   retire_date?: string;
   captured_images_count: number;
+  /** Private storage path of the first enrolment muzzle frame. */
+  reference_image_path: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -239,6 +242,11 @@ export interface RegisterPayload {
   state: string;
   captured_images_count: number;
   quality_score: number;
+  /** pgvector literals of the accepted 256-D embeddings (3–5). */
+  embeddings: string[];
+  image_paths: string[];
+  quality_scores: number[];
+  quality_metrics: QualityMetrics[];
   save_as_draft: boolean;
   source: string;
 }
@@ -304,4 +312,99 @@ export interface ValidationTrial {
 
 export interface Preferences {
   [key: string]: unknown;
+}
+
+// ---------- Live biometric engine ----------
+export type QualityStatus =
+  | 'GOOD IMAGE — READY TO SCAN'
+  | 'MOVE CLOSER'
+  | 'TOO BLURRY — RETAKE'
+  | 'TOO DARK — IMPROVE LIGHTING'
+  | 'MUZZLE NOT DETECTED'
+  | 'PATTERN NOT CLEAR — RETAKE';
+
+export type PipelineStage = 'normalize' | 'detect' | 'crop' | 'quality' | 'embed' | 'search';
+
+export interface MuzzleDetection {
+  muzzleDetected: boolean;
+  species: 'cattle' | 'buffalo' | 'unknown';
+  /** Normalised [x, y, width, height] of the muzzle in the frame, 0–1. */
+  box: [number, number, number, number] | null;
+  focus: 'sharp' | 'soft' | 'blurry';
+  lighting: 'good' | 'dark' | 'glare';
+  patternVisible: boolean;
+  occlusion: 'none' | 'partial' | 'heavy';
+  notes: string;
+}
+
+export interface QualityMetrics {
+  brightness: number;
+  contrast: number;
+  sharpness: number;
+  overexposed: number;
+  fill: number;
+}
+
+export interface MuzzleAnalysis {
+  status: QualityStatus;
+  hint: string;
+  qualityScore: number;
+  metrics: QualityMetrics | null;
+  detection: MuzzleDetection;
+  /** Normalised L2 256-D texture embedding; null when the frame was rejected. */
+  embedding: number[] | null;
+  imageUri: string;
+  imageBase64: string;
+  cropUri: string | null;
+  processingMs: number;
+}
+
+export interface MatchCandidate {
+  animal_id?: string;
+  in_scope: boolean;
+  moozzle_id: string;
+  species: 'cattle' | 'buffalo';
+  breed?: string;
+  sex?: 'female' | 'male';
+  age_years?: number;
+  farm_name?: string;
+  village?: string;
+  reference_image_path?: string | null;
+  score: number;
+}
+
+export type MatchOutcome = 'match' | 'no_match' | 'uncertain';
+
+export interface IdentifyResult {
+  scan_id: string;
+  outcome: MatchOutcome;
+  top_score: number;
+  match_threshold: number;
+  review_threshold: number;
+  templates_searched: number;
+  frames: number;
+  candidates: MatchCandidate[];
+  image_path: string;
+}
+
+export interface VerifyResult {
+  scan_id: string;
+  outcome: MatchOutcome;
+  score: number;
+  verify_threshold: number;
+  review_threshold: number;
+  templates_compared: number;
+  animal: MatchCandidate;
+}
+
+export interface ValidationPayload {
+  mode: 'overall' | 'cross_breed' | 'cross_lighting';
+  templates: number;
+  animals: number;
+  /** [genuine 1 | impostor 0, cosine similarity, group label] */
+  pairs: [number, number, string][];
+  match_threshold: number;
+  review_threshold: number;
+  verify_threshold: number;
+  scans: { total: number; match: number; no_match: number; uncertain: number; avg_ms: number | null };
 }

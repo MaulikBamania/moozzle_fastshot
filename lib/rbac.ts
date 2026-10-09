@@ -378,7 +378,7 @@ export function canOpen(destination: Destination, role: Role, permissions: Permi
     case 'services-operations':
       return role === 'Farm Manager' || role === 'Farmer' || role === 'Organisation Administrator' || role === 'Super Administrator';
     case 'verify':
-      return role === 'Insurance Officer';
+      return role === 'Insurance Officer' || allows(permissions.identify_animal);
     case 'sync':
       return allows(permissions.register_animal) || role === 'Veterinarian' || role === 'AI Technician';
     default:

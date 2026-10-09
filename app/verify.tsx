@@ -1,20 +1,27 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import { StackScreen } from '@/components/app-chrome';
-import { Card, colors, DataGate, EmptyState, formatMoozzleId, OptionChip, Pill, PrimaryButton, TextField, Viewfinder } from '@/components/moozzle-ui';
+import { CaptureImage, EnginePipeline, errorText, MuzzleCapture, ScoreMeter } from '@/components/biometric-ui';
+import { Card, colors, DataGate, formatMoozzleId, OptionChip, PrimaryButton, TextField } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
-import { logAudit, messageOf, recordVerification, useBovineData, useBovineStore } from '@/store/useBovineStore';
-import type { PolicyRow } from '@/store/types';
+import { analyzeMuzzle, verifyMuzzle } from '@/lib/biometric/engine';
+import { logAudit, recordVerification, useBovineData, useBovineStore, useSession } from '@/store/useBovineStore';
+import type { MuzzleAnalysis, PipelineStage, VerifyResult } from '@/store/types';
 
-type Stage = 'select' | 'capture' | 'comparing' | 'result';
-type Simulated = 'same' | 'different' | 'unclear';
+type PolicyOutcome = 'Verified' | 'Mismatch' | 'Manual Review' | 'Exception';
+
+const OUTCOME_COPY = {
+  match: { title: 'VERIFIED', tone: colors.primary, icon: 'shield-checkmark' as const, text: 'The scanned muzzle matches the claimed MOOZZLE ID.' },
+  no_match: { title: 'NOT VERIFIED', tone: colors.danger, icon: 'close-circle' as const, text: 'The scanned muzzle does not match the claimed MOOZZLE ID.' },
+  uncertain: { title: 'INCONCLUSIVE — TRY AGAIN', tone: colors.warning, icon: 'help-circle' as const, text: 'The similarity is between the review and verify thresholds. Capture a clearer frame.' },
+};
 
 export default function VerifyScreen() {
   return (
     <DataGate>
-      <StackScreen title="Verify Animal" eyebrow="Insurance identity check" destination="verify">
+      <StackScreen title="Verify Animal" eyebrow="1:1 biometric verification" destination="verify">
         <VerifyContent />
       </StackScreen>
     </DataGate>
@@ -22,132 +29,146 @@ export default function VerifyScreen() {
 }
 
 function VerifyContent() {
-  const params = useLocalSearchParams<{ policy?: string }>();
+  const params = useLocalSearchParams<{ policy?: string; id?: string }>();
+  const session = useSession();
   const policies = useBovineStore((state) => state.policyRows);
-  const threshold = useBovineStore((state) => Number(state.settings.find((item) => item.key === 'biometric_threshold')?.value ?? 0.82));
   const { animals } = useBovineData();
-  const [policyId, setPolicyId] = useState<string | null>(params.policy ?? null);
-  const [stage, setStage] = useState<Stage>(params.policy ? 'capture' : 'select');
-  const [simulated, setSimulated] = useState<Simulated>('same');
+  const initialPolicy = policies.find((item) => item.id === params.policy) ?? null;
+  const [policyId, setPolicyId] = useState<string | null>(initialPolicy?.id ?? null);
+  const initialId = params.id ?? animals.find((item) => item.id === initialPolicy?.animal_id)?.moozzle_id ?? '';
+  const [claimed, setClaimed] = useState(formatMoozzleId(initialId));
+  const [feedback, setFeedback] = useState<MuzzleAnalysis | null>(null);
+  const [probe, setProbe] = useState<MuzzleAnalysis | null>(null);
+  const [stage, setStage] = useState<PipelineStage | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [pendingUri, setPendingUri] = useState<string | null>(null);
+  const [result, setResult] = useState<VerifyResult | null>(null);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
   const [saved, setSaved] = useState('');
+
+  const digits = claimed.replace(/\D/g, '');
+  const validId = digits.length === 12;
   const policy = policies.find((item) => item.id === policyId) ?? null;
-  const animal = useMemo(() => animals.find((item) => item.id === policy?.animal_id), [animals, policy?.animal_id]);
-  // Illustrative scores for the selected simulated outcome (no recognition model connected).
-  const score = simulated === 'same' ? 0.94 : simulated === 'different' ? 0.31 : threshold - 0.04;
-  const suggested: 'Verified' | 'Mismatch' | 'Manual Review' = simulated === 'same' ? 'Verified' : simulated === 'different' ? 'Mismatch' : 'Manual Review';
+  const claimedAnimal = useMemo(() => animals.find((item) => item.moozzle_id === digits), [animals, digits]);
 
-  useEffect(() => {
-    if (stage !== 'comparing') return undefined;
-    const timer = setTimeout(() => setStage('result'), 1800);
-    return () => clearTimeout(timer);
-  }, [stage]);
-
-  const choose = useCallback((item: PolicyRow) => {
-    setPolicyId(item.id);
-    setStage('capture');
+  const onIdChange = useCallback((value: string) => {
+    setClaimed(value.replace(/\D/g, '').slice(0, 12).replace(/(\d{4})(?=\d)/g, '$1 '));
+    setResult(null);
     setSaved('');
-    setError('');
   }, []);
 
-  const save = useCallback(async (outcome: 'Verified' | 'Mismatch' | 'Manual Review' | 'Exception') => {
-    if (!policy || !animal) return;
+  const choosePolicy = useCallback((id: string) => {
+    const item = policies.find((p) => p.id === id);
+    setPolicyId(id);
+    const animal = animals.find((a) => a.id === item?.animal_id);
+    if (animal) setClaimed(formatMoozzleId(animal.moozzle_id));
+    setResult(null);
+    setSaved('');
+  }, [animals, policies]);
+
+  const handleFrame = useCallback(async (uri: string) => {
+    if (!validId) {
+      setError('Enter the full 12-digit claimed MOOZZLE ID first.');
+      return;
+    }
+    setError('');
+    setResult(null);
+    setSaved('');
+    setPendingUri(uri);
+    setBusy(true);
+    try {
+      const analysis = await analyzeMuzzle(uri, setStage);
+      setFeedback(analysis);
+      if (!analysis.embedding) {
+        setPendingUri(null);
+        void logAudit('biometric.capture', digits, `Verification frame rejected: ${analysis.status}`, 'failed');
+        return;
+      }
+      setProbe(analysis);
+      const verified = await verifyMuzzle(digits, analysis, setStage);
+      setResult(verified);
+      setPendingUri(null);
+    } catch (caught) {
+      console.error('1:1 verification failed', caught);
+      setError(errorText(caught, 'Verification could not complete. Check your connection and retry.'));
+    } finally {
+      setBusy(false);
+      setStage(null);
+    }
+  }, [digits, validId]);
+
+  const savePolicy = useCallback(async (outcome: PolicyOutcome) => {
+    if (!policy || !result) return;
     setSaving(true);
     setError('');
     try {
-      await recordVerification(policy.id, outcome, notes.trim(), Number(score.toFixed(2)), animal.moozzle_id);
-      setSaved(outcome === 'Verified' ? 'Identity verified and recorded. The claim decision stays with the claims team.' : 'Outcome recorded and referred for manual review. No claim was approved or rejected automatically.');
+      await recordVerification(policy.id, outcome, notes.trim(), Number(result.score.toFixed(3)), digits);
+      setSaved(outcome === 'Verified' ? 'Identity verification recorded on the policy. The claim decision stays with the claims team.' : 'Outcome recorded and referred for manual review. No claim was approved or rejected automatically.');
     } catch (caught) {
-      console.error('Verification save failed', caught);
-      setError(messageOf(caught, 'The verification could not be saved.'));
+      console.error('Policy verification save failed', caught);
+      setError(errorText(caught, 'The verification could not be saved to the policy.'));
     } finally {
       setSaving(false);
     }
-  }, [animal, notes, policy, score]);
+  }, [digits, notes, policy, result]);
 
-  if (policies.length === 0) return <EmptyState title="No assigned policies" message="Policies assigned to your insurance company appear here." />;
+  const copy = result ? OUTCOME_COPY[result.outcome] : null;
+  const suggested: PolicyOutcome = result?.outcome === 'match' ? 'Verified' : result?.outcome === 'no_match' ? 'Mismatch' : 'Manual Review';
 
   return (
     <>
-      <View style={styles.steps}>
-        {['Select policy', 'Capture muzzle', 'Compare', 'Record outcome'].map((label, index) => {
-          const active = ['select', 'capture', 'comparing', 'result'].indexOf(stage) >= index;
-          return <Pill key={label} label={`${index + 1}. ${label}`} tone={active ? 'green' : 'slate'} />;
-        })}
-      </View>
+      <Card style={styles.card}>
+        <TextField label="Claimed MOOZZLE ID (12 digits)" value={claimed} onChangeText={onIdChange} keyboardType="number-pad" placeholder="4827 3190 5614" maxLength={14} />
+        {digits.length > 0 && !validId ? <Text style={styles.hint}>{12 - digits.length} more digit(s) needed.</Text> : null}
+        {validId && claimedAnimal ? <Text style={styles.hint}>{claimedAnimal.breed} {claimedAnimal.animal_type} · {claimedAnimal.farm_name || claimedAnimal.village}</Text> : null}
+        {validId && !claimedAnimal ? <Text style={styles.hint}>Not in your downloaded records — the server checks your authorisation when you scan.</Text> : null}
+        {session.role === 'Insurance Officer' && policies.length > 0 ? (
+          <>
+            <Text style={styles.kicker}>FROM AN ASSIGNED POLICY</Text>
+            <View style={styles.chips}>{policies.map((item) => <OptionChip key={item.id} label={`${item.policy_number} · ${item.verification_status}`} selected={policyId === item.id} onPress={() => choosePolicy(item.id)} tone="blue" />)}</View>
+          </>
+        ) : null}
+      </Card>
 
-      {stage === 'select' ? (
-        <>
-          <Text style={styles.section}>Assigned policies and claims</Text>
-          {policies.map((item) => (
-            <Card key={item.id} style={styles.card}>
-              <View style={styles.row}><Text selectable style={styles.policy}>{item.policy_number}</Text><Pill label={item.verification_status} tone={item.verification_status === 'Verified' ? 'green' : item.verification_status === 'Pending' ? 'amber' : 'red'} /></View>
-              <Text style={styles.muted}>Holder {item.holder_name} · ₹{item.coverage_amount.toLocaleString('en-IN')} · Claim: {item.claim_status}</Text>
-              <PrimaryButton label="Verify this animal" icon="shield-checkmark-outline" onPress={() => choose(item)} />
-            </Card>
-          ))}
-        </>
+      <MuzzleCapture onFrame={(uri) => void handleFrame(uri)} busy={busy} feedback={feedback} captureLabel="Capture & Verify" disabled={!validId} />
+      {busy ? <Card style={styles.card}><Text style={styles.section}>Comparing with the claimed identity (1:1)…</Text><EnginePipeline stage={stage} /></Card> : null}
+      {error ? (
+        <View style={styles.errorBox}>
+          <Text selectable style={styles.error}>{error}</Text>
+          {pendingUri ? <PrimaryButton label="Retry" icon="refresh-outline" variant="outline" onPress={() => void handleFrame(pendingUri)} style={styles.retry} /> : null}
+        </View>
       ) : null}
 
-      {policy && animal && stage !== 'select' ? (
-        <Card style={styles.card}>
-          <Text style={styles.kicker}>REGISTERED IDENTITY ON POLICY {policy.policy_number}</Text>
-          <Text selectable style={styles.id}>{formatMoozzleId(animal.moozzle_id)}</Text>
-          <Text style={styles.muted}>{animal.breed} {animal.animal_type} · {animal.sex} · {animal.age_years} yrs · {animal.district}</Text>
-        </Card>
-      ) : null}
-      {policy && !animal && stage !== 'select' ? <Text style={styles.error}>The insured animal is not available to your role.</Text> : null}
-
-      {stage === 'capture' && animal ? (
+      {result && copy ? (
         <>
-          <Viewfinder label="Capture the muzzle of the animal presented for the claim." />
-          <Card style={styles.card}>
-            <Text style={styles.simLabel}>Simulated comparison result (no recognition model connected)</Text>
-            <View style={styles.chips}>
-              <OptionChip label="Same animal" selected={simulated === 'same'} onPress={() => setSimulated('same')} />
-              <OptionChip label="Different animal" selected={simulated === 'different'} onPress={() => setSimulated('different')} tone="red" />
-              <OptionChip label="Unclear / near threshold" selected={simulated === 'unclear'} onPress={() => setSimulated('unclear')} tone="blue" />
-            </View>
-          </Card>
-          <View style={styles.row}>
-            <PrimaryButton label="Change Policy" variant="outline" onPress={() => setStage('select')} style={styles.flex} />
-            <PrimaryButton label="Capture & Compare" icon="scan-outline" onPress={() => setStage('comparing')} style={styles.flex} />
+          <View style={[styles.banner, { backgroundColor: copy.tone }]}>
+            <Ionicons name={copy.icon} size={26} color={colors.surface} />
+            <View style={styles.flex}><Text style={styles.bannerTitle}>{copy.title}</Text><Text style={styles.bannerText}>{copy.text}</Text></View>
           </View>
-        </>
-      ) : null}
-
-      {stage === 'comparing' ? (
-        <Card style={styles.center}>
-          <ActivityIndicator color={colors.blue} />
-          <Text style={styles.muted}>Comparing capture with the registered template (1:1)…</Text>
-        </Card>
-      ) : null}
-
-      {stage === 'result' && animal ? (
-        <>
           <Card style={styles.card}>
-            <View style={styles.row}>
-              <Ionicons name={suggested === 'Verified' ? 'checkmark-circle' : suggested === 'Mismatch' ? 'close-circle' : 'help-circle'} size={28} color={suggested === 'Verified' ? colors.primary : suggested === 'Mismatch' ? colors.danger : colors.warning} />
-              <View style={styles.flex}>
-                <Text style={styles.resultTitle}>{suggested === 'Verified' ? 'Match above threshold' : suggested === 'Mismatch' ? 'Does not match registered identity' : 'Uncertain match'}</Text>
-                <Text style={styles.muted}>Illustrative score {score.toFixed(2)} · threshold {threshold.toFixed(2)}</Text>
-              </View>
+            <Text style={styles.kicker}>CLAIMED IDENTITY</Text>
+            <Text selectable style={styles.id}>{formatMoozzleId(digits)}</Text>
+            <View style={styles.compare}>
+              <CaptureImage uri={probe?.cropUri ?? probe?.imageUri} label="THIS SCAN" size={128} />
+              <Ionicons name="swap-horizontal" size={20} color={colors.muted} />
+              <CaptureImage path={result.animal.reference_image_path} label="ENROLLED" size={128} />
             </View>
-            <Text style={styles.note}>A biometric result never approves or rejects a claim by itself. Record the verification outcome; disputed or uncertain matches go to manual review.</Text>
-            <TextField label="Verification notes" value={notes} onChangeText={setNotes} placeholder="Field observations, ear notch, colour…" multiline />
+            <ScoreMeter score={result.score} upper={result.verify_threshold} lower={result.review_threshold} upperLabel="Verified" />
+            <Text style={styles.hint}>Best of {result.templates_compared} enrolled template(s). Logged to the audit trail.</Text>
           </Card>
-          {saved ? (
-            <View style={styles.saved}><Text selectable style={styles.savedText}>{saved}</Text><PrimaryButton label="Open Animal Record" variant="outline" onPress={() => router.push({ pathname: '/animal/[id]', params: { id: animal.moozzle_id, tab: 'insurance' } })} /><PrimaryButton label="Verify Another" onPress={() => { setStage('select'); setSaved(''); setNotes(''); void logAudit('biometric.verify', '', 'Verification session closed', 'success'); }} /></View>
-          ) : (
-            <View style={styles.actions}>
-              <PrimaryButton label={saving ? 'Saving…' : 'Record: Verified'} icon="checkmark" onPress={() => void save('Verified')} disabled={saving || suggested !== 'Verified'} />
-              <PrimaryButton label="Refer for Manual Review" icon="people-outline" variant="blue" onPress={() => void save('Manual Review')} disabled={saving} />
-              <PrimaryButton label="Record Mismatch / Suspected Duplicate" icon="warning-outline" variant="danger" onPress={() => void save(suggested === 'Mismatch' ? 'Mismatch' : 'Exception')} disabled={saving} />
-            </View>
-          )}
-          {error ? <Text selectable style={styles.error}>{error}</Text> : null}
+          {result.outcome === 'match' && result.animal.in_scope ? <PrimaryButton label="Open Animal Record" icon="document-text-outline" onPress={() => router.push(`/animal/${digits}`)} /> : null}
+          {result.outcome === 'uncertain' ? <PrimaryButton label="Try Again" icon="refresh-outline" variant="outline" onPress={() => { setResult(null); setFeedback(null); }} /> : null}
+          {policy ? (
+            <Card style={styles.card}>
+              <Text style={styles.section}>Record outcome on policy {policy.policy_number}</Text>
+              <TextField label="Notes (optional)" value={notes} onChangeText={setNotes} placeholder="Location, lighting, who presented the animal" />
+              <PrimaryButton label={saving ? 'Saving…' : `Record: ${suggested}`} icon="save-outline" onPress={() => void savePolicy(suggested)} disabled={saving || !!saved} />
+              {suggested !== 'Manual Review' ? <PrimaryButton label="Refer for Manual Review" variant="outline" onPress={() => void savePolicy('Manual Review')} disabled={saving || !!saved} /> : null}
+              {saved ? <Text style={styles.ok}>{saved}</Text> : null}
+            </Card>
+          ) : null}
         </>
       ) : null}
     </>
@@ -156,21 +177,18 @@ function VerifyContent() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  steps: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  section: { color: colors.text, fontFamily: Fonts.bold, fontSize: 17 },
   card: { gap: 10 },
-  center: { alignItems: 'center', gap: 10, paddingVertical: 28 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  policy: { flex: 1, color: colors.text, fontFamily: Fonts.bold, fontSize: 15 },
-  muted: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 13 },
-  kicker: { color: colors.muted, fontFamily: Fonts.bold, fontSize: 10, letterSpacing: 0.9 },
-  id: { color: colors.text, fontFamily: Fonts.bold, fontSize: 22, fontVariant: ['tabular-nums'] },
-  simLabel: { color: colors.muted, fontFamily: Fonts.bold, fontSize: 10, letterSpacing: 0.8, textTransform: 'uppercase' },
+  hint: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 12, lineHeight: 17 },
+  kicker: { color: colors.muted, fontFamily: Fonts.bold, fontSize: 10, letterSpacing: 1.1 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  resultTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 16 },
-  note: { color: '#075985', backgroundColor: colors.blueLight, borderRadius: 10, padding: 10, fontFamily: Fonts.medium, fontSize: 12, lineHeight: 17 },
-  actions: { gap: 10 },
-  saved: { gap: 10, backgroundColor: colors.primaryLight, borderRadius: 14, padding: 14 },
-  savedText: { color: colors.primaryDark, fontFamily: Fonts.semiBold, fontSize: 14 },
-  error: { color: colors.danger, fontFamily: Fonts.medium, fontSize: 13 },
+  section: { color: colors.text, fontFamily: Fonts.bold, fontSize: 15 },
+  errorBox: { gap: 8, backgroundColor: colors.dangerLight, borderRadius: 12, padding: 12 },
+  error: { color: colors.danger, fontFamily: Fonts.medium, fontSize: 13, lineHeight: 18 },
+  retry: { alignSelf: 'flex-start', minHeight: 44 },
+  banner: { borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 11 },
+  bannerTitle: { color: colors.surface, fontFamily: Fonts.bold, fontSize: 16, letterSpacing: 0.5 },
+  bannerText: { color: '#F8FAFC', fontFamily: Fonts.medium, fontSize: 12, marginTop: 2 },
+  id: { color: colors.text, fontFamily: Fonts.bold, fontSize: 24, letterSpacing: 1, fontVariant: ['tabular-nums'] },
+  compare: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  ok: { color: colors.primary, fontFamily: Fonts.medium, fontSize: 13, lineHeight: 18 },
 });

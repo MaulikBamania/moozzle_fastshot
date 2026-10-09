@@ -39,7 +39,20 @@
       "expo-image",
       "expo-status-bar",
       "expo-web-browser",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "MOOZZLE uses the camera to capture cattle and buffalo muzzle patterns for biometric identification.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "MOOZZLE lets you upload a muzzle photo for biometric identification."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
