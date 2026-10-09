@@ -11,11 +11,12 @@ import {
   OptionChip,
   PageHeader,
   PrimaryButton,
-  StorageGate,
+  DataGate,
   TextField,
 } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
 import { useAppStore } from '@/store/useAppStore';
+import { useBovineData } from '@/store/useBovineStore';
 import type { AnimalType, ValidationTrial } from '@/store/types';
 
 interface ValidationDraft {
@@ -41,25 +42,26 @@ const BENCHMARKS = [
   ['Recognition latency', 'Demo value'],
 ] as const;
 
-const CENTRAL_STATS = [
-  ['Registered bovines', '2,822'],
-  ['Cattle', '1,500'],
-  ['Buffalo', '1,322'],
-  ['Biometric templates', '2,822'],
-  ['Active', '2,700'],
-  ['Retired', '122'],
-] as const;
 
 export default function PerformanceScreen() {
   return (
-    <StorageGate>
+    <DataGate>
       <PerformanceContent />
-    </StorageGate>
+    </DataGate>
   );
 }
 
 function PerformanceContent() {
   const trials = useAppStore((state) => state.validationTrials);
+  const { animals, templates } = useBovineData();
+  const archiveStats = useMemo(() => [
+    ['Registered bovines', String(animals.length)],
+    ['Cattle', String(animals.filter((item) => item.animal_type === 'Cattle').length)],
+    ['Buffalo', String(animals.filter((item) => item.animal_type === 'Buffalo').length)],
+    ['Biometric templates', String(templates.length)],
+    ['Active', String(animals.filter((item) => item.current_status === 'Active').length)],
+    ['Retired', String(animals.filter((item) => item.current_status === 'Retired').length)],
+  ] as const, [animals, templates]);
   const addValidationTrial = useAppStore((state) => state.addValidationTrial);
   const [animalType, setAnimalType] = useState<AnimalType>('Cattle');
   const [draft, setDraft] = useState<ValidationDraft>(createInitialDraft);
@@ -179,13 +181,13 @@ function PerformanceContent() {
           <View style={styles.heroCopy}>
             <Text style={styles.eyebrow}>Evidence first</Text>
             <Text style={styles.heroTitle}>Performance & Field Validation</Text>
-            <Text selectable style={styles.heroText}>Central archive figures are demo reference data. Biometric benchmarks stay unpopulated until representative field testing is recorded.</Text>
+            <Text selectable style={styles.heroText}>Archive figures are counted live from your Supabase records. Biometric benchmarks stay unpopulated until representative field testing is recorded.</Text>
           </View>
         </Card>
 
-        <SectionHeading eyebrow="Central database" title="Archive statistics" />
+        <SectionHeading eyebrow="Your cloud archive" title="Archive statistics" />
         <Card style={styles.statsCard}>
-          {CENTRAL_STATS.map(([label, value], index) => <StatRow key={label} label={label} value={value} accent={index === 0} />)}
+          {archiveStats.map(([label, value], index) => <StatRow key={label} label={label} value={value} accent={index === 0} />)}
         </Card>
 
         <SectionHeading eyebrow="Benchmarks" title="Prototype baseline" />

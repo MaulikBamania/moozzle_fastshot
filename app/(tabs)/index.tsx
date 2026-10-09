@@ -12,26 +12,28 @@ import {
   BiometricScanIcon,
   Pill,
   SectionTitle,
-  StorageGate,
+  DataGate,
+  PrimaryButton,
   tr,
 } from '@/components/moozzle-ui';
 import { useAppStore } from '@/store/useAppStore';
+import { useBovineData } from '@/store/useBovineStore';
+import { useIsOnline } from '@/store/useConnectivity';
 import type { Animal, Language } from '@/store/types';
 import { Fonts } from '@/constants/Typography';
 
 export default function HomeScreen() {
   return (
-    <StorageGate>
+    <DataGate>
       <HomeContent />
-    </StorageGate>
+    </DataGate>
   );
 }
 
 function HomeContent() {
-  const animals = useAppStore((state) => state.animals);
+  const { animals, pendingCount, error: dataError } = useBovineData();
   const language = useAppStore((state) => state.language);
-  const offlineMode = useAppStore((state) => state.offlineMode);
-  const pendingSyncQueue = useAppStore((state) => state.pendingSyncQueue);
+  const online = useIsOnline();
   const setLanguage = useAppStore((state) => state.setLanguage);
   const recentAnimals = useMemo(() => animals.slice(0, 3), [animals]);
   const cattleCount = useMemo(() => animals.filter((item) => item.animal_type === 'Cattle').length, [animals]);
@@ -50,12 +52,11 @@ function HomeContent() {
   const openAbout = useCallback(() => router.push('/about'), []);
   const openRecentRecords = useCallback(() => router.replace('/(tabs)/records' as never), []);
   const openAnimal = useCallback((id: string) => router.push(`/animal/${id}`), []);
-  const pendingCount = pendingSyncQueue.animalRecords + pendingSyncQueue.muzzleImages + pendingSyncQueue.aiHealthEntries;
 
   return (
     <AppScreen>
       <View style={styles.screenBody}>
-        <AppHeader language={language} onLanguageChange={handleLanguageChange} offline={offlineMode} onNetworkPress={openSync} />
+        <AppHeader language={language} onLanguageChange={handleLanguageChange} offline={!online} onNetworkPress={openSync} />
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
           showsVerticalScrollIndicator={false}
@@ -65,12 +66,12 @@ function HomeContent() {
           <Card style={styles.statsCard}>
             <View style={styles.metricLabelRow}>
               <Text style={styles.metricLabel}>Registered Bovines:</Text>
-              <Pill label="Demo Dataset" />
+              <Pill label={online ? 'Cloud Archive' : 'Offline'} tone={online ? 'green' : 'amber'} />
             </View>
             <View style={styles.statsTop}>
               <View style={styles.statsMain}>
                 <Text selectable style={styles.metricValue}>{animals.length}</Text>
-                <Text style={styles.metricSupporting}>2,822 central archive demo records</Text>
+                <Text style={styles.metricSupporting}>{dataError ? 'Showing last loaded records' : 'Enrolled under your account'}</Text>
               </View>
               <View style={styles.speciesGrid}>
                 <SpeciesMetric species="Cattle" label="Cattle" value={cattleCount} color={colors.primary} />
@@ -79,7 +80,7 @@ function HomeContent() {
             </View>
             <Pressable accessibilityRole="button" onPress={openSync} style={({ pressed }) => [styles.syncBanner, pressed && styles.tilePressed]}>
               <Ionicons name="sync-outline" size={22} color={colors.warning} />
-              <Text style={styles.syncText}>{pendingCount} Pending Offline Sync</Text>
+              <Text style={styles.syncText}>{pendingCount > 0 ? `${pendingCount} Pending Offline Sync` : 'All records synced'}</Text>
               <Ionicons name="chevron-forward" size={17} color={colors.warning} />
             </Pressable>
           </Card>
@@ -87,7 +88,7 @@ function HomeContent() {
           <View style={styles.actionGrid}>
             <ActionTile icon="camera" title={tr(language, 'register')} description="Enrol new cattle/buffalo with 3-5 muzzle scans." background={colors.primary} lightText onPress={openRegister} />
             <ActionTile icon="biometric-scan" title={tr(language, 'identifyAnimal')} description="Scan muzzle to find 12-digit ID (1:N Search)." background={colors.blue} lightText onPress={openIdentify} />
-            <ActionTile icon="document-text-outline" title={tr(language, 'animalRecords')} description="Browse 20+ demo animals, health & AI records." background={colors.surface} onPress={openRecords} />
+            <ActionTile icon="document-text-outline" title={tr(language, 'animalRecords')} description="Browse your enrolled bovines, health & AI records." background={colors.surface} onPress={openRecords} />
             <ActionTile icon="sync-outline" title="SYNC DATA" description="Upload queued records and muzzle images securely." background={colors.warning} lightText onPress={openSync} />
           </View>
 
@@ -95,7 +96,7 @@ function HomeContent() {
           <View style={styles.quickGrid}>
             <QuickLink icon="shield-checkmark-outline" title={tr(language, 'verifyAnimal')} detail="1:1 biometric verification" tone="green" onPress={openVerify} />
             <QuickLink icon="analytics-outline" title="PERFORMANCE" detail="Benchmarks and field trials" tone="blue" onPress={openPerformance} />
-            <QuickLink icon="code-slash-outline" title="API CONSOLE" detail="Inspect REST demo endpoints" tone="blue" onPress={openApiDocs} />
+            <QuickLink icon="code-slash-outline" title="API CONSOLE" detail="Inspect REST endpoints" tone="blue" onPress={openApiDocs} />
             <QuickLink icon="information-circle-outline" title="ABOUT MOOZZLE" detail="Architecture and safeguards" tone="green" onPress={openAbout} />
           </View>
 
@@ -105,12 +106,18 @@ function HomeContent() {
           </View>
 
           <SectionTitle title="Recent Identifications" action="View All" onAction={openRecentRecords} />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.recentScroll} contentContainerStyle={styles.recentContent}>
-            {recentAnimals.map((animal) => <RecentAnimalCard key={animal.moozzle_id} animal={animal} onPress={() => openAnimal(animal.moozzle_id)} />)}
-          </ScrollView>
-          <View style={styles.carouselDots}>
-            <View style={[styles.carouselDot, styles.carouselDotActive]} /><View style={styles.carouselDot} /><View style={styles.carouselDot} />
-          </View>
+          {recentAnimals.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.recentScroll} contentContainerStyle={styles.recentContent}>
+              {recentAnimals.map((animal) => <RecentAnimalCard key={animal.id} animal={animal} onPress={() => openAnimal(animal.moozzle_id)} />)}
+            </ScrollView>
+          ) : (
+            <View style={styles.emptyRecent}>
+              <View style={styles.emptyIcon}><MaterialCommunityIcons name="cow" size={26} color={colors.primary} /></View>
+              <Text style={styles.emptyTitle}>No bovines enrolled yet</Text>
+              <Text style={styles.emptyText}>Register your first animal to create its permanent 12-digit MOOZZLE ID.</Text>
+              <PrimaryButton label="Enrol First Bovine" icon="add" onPress={openRegister} />
+            </View>
+          )}
         </ScrollView>
         <BottomNav active="home" />
       </View>
@@ -162,7 +169,7 @@ function RecentAnimalCard({ animal, onPress }: { animal: Animal; onPress: () => 
       <View style={styles.recentInfo}>
         <Text numberOfLines={1} style={styles.recentName}>{animal.breed} {animal.animal_type === 'Buffalo' ? 'Buffalo' : 'Cow'}</Text>
         <Text selectable style={styles.recentId}>{formatRecentId(animal.moozzle_id)}</Text>
-        <View style={styles.enrolledRow}><Ionicons name="checkmark-circle" size={17} color={colors.accent} /><Text style={styles.enrolledText}>{animal.biometric_status}</Text><Ionicons name="chevron-forward" size={20} color={colors.muted} /></View>
+        <View style={styles.enrolledRow}><Ionicons name="checkmark-circle" size={17} color={colors.accent} /><Text style={styles.enrolledText}>{animal.pending_sync ? 'Queued' : animal.biometric_status}</Text><Ionicons name="chevron-forward" size={20} color={colors.muted} /></View>
       </View>
     </Pressable>
   );
@@ -224,7 +231,8 @@ const styles = StyleSheet.create({
   recentId: { color: '#526A84', fontFamily: Fonts.medium, fontSize: 10, fontVariant: ['tabular-nums'] },
   enrolledRow: { minHeight: 20, flexDirection: 'row', alignItems: 'center', gap: 3 },
   enrolledText: { flex: 1, color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 10 },
-  carouselDots: { flexDirection: 'row', justifyContent: 'center', gap: 7, paddingVertical: 2 },
-  carouselDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#CBD5E1' },
-  carouselDotActive: { backgroundColor: colors.primary },
+  emptyRecent: { borderRadius: 14, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', backgroundColor: colors.surface, padding: 16, gap: 8, alignItems: 'center' },
+  emptyIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
+  emptyTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 15 },
+  emptyText: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 12, lineHeight: 17, textAlign: 'center', marginBottom: 4 },
 });

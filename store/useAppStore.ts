@@ -1,38 +1,26 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { appStorage, trackLoading, useStorageStatus } from './storage';
-import { sampleAnimals, sampleServiceRecords, sampleTemplates } from './sampleData';
-import type {
-  Animal,
-  BiometricTemplate,
-  Language,
-  LivestockServiceRecord,
-  Preferences,
-  SyncQueue,
-  SyncSummary,
-  ValidationTrial,
-} from './types';
+import type { Language, Preferences, QueuedOperation, SyncSummary, ValidationTrial } from './types';
 
-interface PreferencesSlice {
-  preferences: Preferences;
-}
-
-interface AnimalActions {
-  addAnimal: (animal: Animal, template: BiometricTemplate) => void;
-  addServiceRecord: (record: LivestockServiceRecord) => void;
-  retireAnimal: (moozzleId: string, reason: string, notes: string) => void;
+interface AppActions {
   setLanguage: (language: Language) => void;
   setOfflineMode: (enabled: boolean) => void;
-  completeSync: (summary: SyncSummary) => void;
+  enqueue: (operation: QueuedOperation) => void;
+  updateQueued: (opId: string, operation: QueuedOperation) => void;
+  removeQueued: (opId: string) => void;
+  setLastSyncSummary: (summary: SyncSummary) => void;
   addValidationTrial: (trial: ValidationTrial) => void;
 }
 
-export interface AppStore extends PreferencesSlice, AnimalActions {
-  animals: Animal[];
-  biometricTemplates: BiometricTemplate[];
-  serviceRecords: LivestockServiceRecord[];
+/**
+ * Device-only state: preferences, the offline write queue and field-trial logs.
+ * Bovine records themselves live in Supabase (see store/useBovineStore.ts).
+ */
+export interface AppStore extends AppActions {
+  preferences: Preferences;
   validationTrials: ValidationTrial[];
-  pendingSyncQueue: SyncQueue;
+  syncQueue: QueuedOperation[];
   lastSyncSummary: SyncSummary | null;
   offlineMode: boolean;
   language: Language;
@@ -44,55 +32,27 @@ export const useAppStore = create<AppStore>()(
   persist(
     (set) => ({
       preferences: {},
-      animals: sampleAnimals,
-      biometricTemplates: sampleTemplates,
-      serviceRecords: sampleServiceRecords,
       validationTrials: [],
-      pendingSyncQueue: { animalRecords: 12, muzzleImages: 8, aiHealthEntries: 4 },
+      syncQueue: [],
       lastSyncSummary: null,
       offlineMode: false,
       language: 'EN',
-      addAnimal: (animal, template) =>
-        set((state) => ({
-          animals: [animal, ...state.animals],
-          biometricTemplates: [template, ...state.biometricTemplates],
-        })),
-      addServiceRecord: (record) =>
-        set((state) => ({ serviceRecords: [record, ...state.serviceRecords] })),
-      retireAnimal: (moozzleId, reason, notes) =>
-        set((state) => ({
-          animals: state.animals.map((item) =>
-            item.moozzle_id === moozzleId
-              ? {
-                  ...item,
-                  biometric_status: 'Retired',
-                  current_status: 'Retired',
-                  retire_reason: notes ? `${reason}: ${notes}` : reason,
-                  retire_date: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                }
-              : item
-          ),
-        })),
       setLanguage: (language) => set({ language }),
       setOfflineMode: (enabled) => set({ offlineMode: enabled }),
-      completeSync: (summary) =>
-        set({
-          pendingSyncQueue: { animalRecords: 0, muzzleImages: 0, aiHealthEntries: 0 },
-          lastSyncSummary: summary,
-        }),
+      enqueue: (operation) => set((state) => ({ syncQueue: [...state.syncQueue, operation] })),
+      updateQueued: (opId, operation) =>
+        set((state) => ({ syncQueue: state.syncQueue.map((item) => (item.opId === opId ? operation : item)) })),
+      removeQueued: (opId) => set((state) => ({ syncQueue: state.syncQueue.filter((item) => item.opId !== opId) })),
+      setLastSyncSummary: (summary) => set({ lastSyncSummary: summary }),
       addValidationTrial: (trial) => set((state) => ({ validationTrials: [trial, ...state.validationTrials] })),
     }),
     {
-      name: 'app-storage',
+      name: 'moozzle-device-v2',
       storage: appStorage(),
       partialize: (state) => ({
         preferences: state.preferences,
-        animals: state.animals,
-        biometricTemplates: state.biometricTemplates,
-        serviceRecords: state.serviceRecords,
         validationTrials: state.validationTrials,
-        pendingSyncQueue: state.pendingSyncQueue,
+        syncQueue: state.syncQueue,
         lastSyncSummary: state.lastSyncSummary,
         offlineMode: state.offlineMode,
         language: state.language,

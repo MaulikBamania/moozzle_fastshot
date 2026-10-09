@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { retryLoading, useAppStore } from '@/store/useAppStore';
+import { continueOffline, loadBovineData, useBovineStore } from '@/store/useBovineStore';
 import { useStorageStatus } from '@/store/storage';
 import type { Animal, Language } from '@/store/types';
 import { Fonts } from '@/constants/Typography';
@@ -55,7 +56,7 @@ const translations: Record<Language, Record<string, string>> = {
     offline: 'OFFLINE MODE',
     next: 'Next',
     retry: 'Retry',
-    online: 'ONLINE • Sample Data',
+    online: 'ONLINE • Cloud Sync',
     fieldTip: 'Field Tip',
   },
   HI: {
@@ -70,7 +71,7 @@ const translations: Record<Language, Record<string, string>> = {
     offline: 'ऑफलाइन मोड',
     next: 'आगे',
     retry: 'फिर कोशिश करें',
-    online: 'ऑनलाइन · सैंपल डेटा',
+    online: 'ऑनलाइन · क्लाउड सिंक',
     fieldTip: 'मैदानी सुझाव',
   },
   GU: {
@@ -85,7 +86,7 @@ const translations: Record<Language, Record<string, string>> = {
     offline: 'ઓફલાઇન મોડ',
     next: 'આગળ',
     retry: 'ફરી પ્રયાસ કરો',
-    online: 'ઓનલાઇન · સેમ્પલ ડેટા',
+    online: 'ઓનલાઇન · ક્લાઉડ સિંક',
     fieldTip: 'ફિલ્ડ સૂચન',
   },
 };
@@ -96,8 +97,9 @@ export function formatMoozzleId(id: string): string {
   return id.replace(/(\d{4})(\d{4})(\d{4})/, '$1 $2 $3');
 }
 
-export function getAnimalImageSource(uri: string | undefined): number {
-  return uri === 'asset://murrah' ? murrahPhoto : girPhoto;
+/** Species reference artwork (the prototype does not upload muzzle photos). */
+export function getAnimalImageSource(animalType: Animal['animal_type'] | undefined): number {
+  return animalType === 'Buffalo' ? murrahPhoto : girPhoto;
 }
 
 export function AppScreen({ children, scroll = false }: { children: React.ReactNode; scroll?: boolean }) {
@@ -119,10 +121,32 @@ export function AppScreen({ children, scroll = false }: { children: React.ReactN
   return <View style={[styles.page, { paddingTop: insets.top }]}>{content}</View>;
 }
 
+/** Waits for device preferences and the offline queue. */
 export function StorageGate({ children }: { children: React.ReactNode }) {
   const status = useStorageStatus();
-  if (status.phase === 'loading') return <LoadingState label="Loading local animal records…" />;
-  if (status.phase === 'error') return <ErrorState message="Local records could not be loaded." onRetry={retryLoading} />;
+  if (status.phase === 'loading') return <LoadingState label="Loading device settings…" />;
+  if (status.phase === 'error') return <ErrorState message="Device settings and the offline queue could not be loaded." onRetry={retryLoading} />;
+  return <>{children}</>;
+}
+
+/** Waits for device storage plus this account's bovine records from Supabase. */
+export function DataGate({ children }: { children: React.ReactNode }) {
+  const storagePhase = useStorageStatus((state) => state.phase);
+  const phase = useBovineStore((state) => state.phase);
+  const error = useBovineStore((state) => state.error);
+  if (storagePhase === 'loading') return <LoadingState label="Loading device settings…" />;
+  if (storagePhase === 'error') return <ErrorState message="Device settings and the offline queue could not be loaded." onRetry={retryLoading} />;
+  if (phase === 'idle' || phase === 'loading') return <LoadingState label="Loading your bovine records…" />;
+  if (phase === 'error') {
+    return (
+      <ErrorState
+        message={`${error ?? 'Your bovine records could not be loaded.'} Check your connection and retry, or continue offline with queued work.`}
+        onRetry={() => void loadBovineData()}
+        secondaryLabel="Continue Offline"
+        onSecondary={continueOffline}
+      />
+    );
+  }
   return <>{children}</>;
 }
 
@@ -135,7 +159,7 @@ export function LoadingState({ label }: { label: string }) {
   );
 }
 
-export function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+export function ErrorState({ message, onRetry, secondaryLabel, onSecondary }: { message: string; onRetry: () => void; secondaryLabel?: string; onSecondary?: () => void }) {
   return (
     <View style={styles.stateScreen}>
       <View style={styles.errorIcon}>
@@ -144,6 +168,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry: () 
       <Text selectable style={styles.errorTitle}>Something needs attention</Text>
       <Text selectable style={styles.stateLabel}>{message}</Text>
       <PrimaryButton label="Retry" onPress={onRetry} variant="outline" />
+      {secondaryLabel && onSecondary ? <PrimaryButton label={secondaryLabel} onPress={onSecondary} variant="soft" /> : null}
     </View>
   );
 }
@@ -166,6 +191,23 @@ export function BiometricScanIcon({ size = 28, color = colors.surface }: { size?
   );
 }
 
+export function AccountButton() {
+  const profile = useBovineStore((state) => state.profile);
+  const name = profile?.full_name?.trim() || 'Account';
+  const initials = name === 'Account' ? '' : name.split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '').join('');
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Open account for ${name}`}
+      onPress={() => router.push('/profile')}
+      hitSlop={8}
+      style={({ pressed }) => [styles.accountButton, pressed && styles.buttonPressed]}
+    >
+      {initials ? <Text style={styles.accountInitials}>{initials}</Text> : <Ionicons name="person" size={15} color={colors.surface} />}
+    </Pressable>
+  );
+}
+
 export function AppHeader({ language, onLanguageChange, onNetworkPress, offline = false }: { language: Language; onLanguageChange: (value: Language) => void; onNetworkPress?: () => void; offline?: boolean }) {
   return (
     <View style={styles.appHeader}>
@@ -178,6 +220,7 @@ export function AppHeader({ language, onLanguageChange, onNetworkPress, offline 
       </View>
       <View style={styles.headerActions}>
         <View style={styles.languageRow}>
+          <AccountButton />
           {(['EN', 'HI', 'GU'] as Language[]).map((item, index) => (
             <View style={styles.languageItem} key={item}>
               <Pressable
@@ -328,7 +371,7 @@ export function AnimalPhoto({ animal, size = 72, rounded = true, style }: { anim
   return (
     <Image
       accessibilityLabel={animal ? `${animal.breed} ${animal.animal_type} reference` : 'Bovine reference'}
-      source={getAnimalImageSource(animal?.reference_muzzle_uri)}
+      source={getAnimalImageSource(animal?.animal_type)}
       contentFit="cover"
       style={[{ width: size, height: size, borderRadius: rounded ? 12 : 0, backgroundColor: colors.primaryLight }, style]}
     />
@@ -421,6 +464,8 @@ const styles = StyleSheet.create({
   brandCopy: { flex: 1, minWidth: 0, gap: 1 },
   brandName: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 23, letterSpacing: 0.2 },
   brandSubtitle: { color: '#526A84', fontFamily: Fonts.medium, fontSize: 9, lineHeight: 11, letterSpacing: -0.35, flexShrink: 1 },
+  accountButton: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', marginRight: 4 },
+  accountInitials: { color: colors.surface, fontFamily: Fonts.bold, fontSize: 11, letterSpacing: 0.3 },
   headerActions: { width: 148, flexShrink: 0, alignItems: 'flex-end', gap: 9, paddingTop: 8 },
   languageRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   languageItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },

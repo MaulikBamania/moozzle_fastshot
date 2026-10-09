@@ -14,27 +14,41 @@ import {
   PipelineList,
   Pill,
   PrimaryButton,
-  StorageGate,
+  DataGate,
+  EmptyState,
+  TextField,
   Viewfinder,
 } from '@/components/moozzle-ui';
-import { useAppStore } from '@/store/useAppStore';
+import { MODEL_VERSION, useBovineData } from '@/store/useBovineStore';
 import type { Animal } from '@/store/types';
 import { Fonts } from '@/constants/Typography';
 
 const identifySteps = ['Detecting muzzle', 'Extracting 256-D ridge pattern', 'Comparing with registered templates'];
 
 export default function IdentifyScreen() {
-  return <StorageGate><IdentifyContent /></StorageGate>;
+  return <DataGate><IdentifyContent /></DataGate>;
 }
 
 function IdentifyContent() {
-  const animals = useAppStore((state) => state.animals);
+  const { animals, templates } = useBovineData();
+  const [query, setQuery] = useState('');
   const [scanning, setScanning] = useState(false);
   const [pipelineIndex, setPipelineIndex] = useState(0);
   const [result, setResult] = useState<Animal | null>(null);
+  const [fromLookup, setFromLookup] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
-  const demoCandidate = useMemo(() => animals.find((item) => item.moozzle_id === '482731905614') ?? animals[0], [animals]);
+  const candidates = useMemo(() => {
+    const enrolled = new Set(templates.map((template) => template.animal_id));
+    return animals.filter((item) => item.current_status === 'Active' && enrolled.has(item.id));
+  }, [animals, templates]);
+  // Prototype: no on-device model yet, so the simulated scan resolves to the latest active enrolment.
+  const demoCandidate = candidates[0];
+  const lookupResults = useMemo(() => {
+    const normalized = query.replace(/\s/g, '').toLowerCase();
+    if (normalized.length < 3) return [];
+    return animals.filter((item) => [item.moozzle_id, item.owner_name.replace(/\s/g, ''), item.village.replace(/\s/g, ''), item.breed].some((value) => value.toLowerCase().includes(normalized))).slice(0, 5);
+  }, [animals, query]);
 
   useEffect(() => {
     if (!scanning) return undefined;
@@ -43,6 +57,7 @@ function IdentifyContent() {
         if (current >= identifySteps.length) {
           clearInterval(timer);
           setScanning(false);
+          setFromLookup(false);
           setResult(demoCandidate ?? null);
           return current;
         }
@@ -55,7 +70,7 @@ function IdentifyContent() {
   const handleScan = useCallback(() => {
     try {
       if (!demoCandidate) {
-        setError('No enrolled animals are available for a demo match.');
+        setError('You have no active enrolled bovines to compare against yet. Register an animal first.');
         return;
       }
       setError('');
@@ -78,6 +93,12 @@ function IdentifyContent() {
       setError('Copy is unavailable on this device. The ID remains selectable.');
     }
   }, [result]);
+  const chooseLookup = useCallback((animal: Animal) => {
+    setResult(animal);
+    setFromLookup(true);
+    setCopied(false);
+    setQuery('');
+  }, []);
   const clearResult = useCallback(() => {
     setResult(null);
     setCopied(false);
@@ -93,13 +114,32 @@ function IdentifyContent() {
     <AppScreen>
       <View style={styles.screenBody}>
         <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} style={styles.flex} contentContainerStyle={styles.content}>
-          <View style={styles.titleBlock}><Text style={styles.eyebrow}>1:N BIOMETRIC SEARCH</Text><Text style={styles.title}>Identify Animal</Text><Text style={styles.subtitle}>Scan a muzzle to find the permanent MOOZZLE ID in the local archive.</Text></View>
+          <View style={styles.titleBlock}><Text style={styles.eyebrow}>1:N BIOMETRIC SEARCH</Text><Text style={styles.title}>Identify Animal</Text><Text style={styles.subtitle}>Scan a muzzle or look up an ID to find a bovine in your cloud archive.</Text></View>
           {!result && !scanning && <Viewfinder label="Position muzzle inside the oval frame. Keep distance ~15-25 cm." />}
-          {scanning && <Card style={styles.processingCard}><View style={styles.searchHeader}><View style={styles.radarIcon}><Ionicons name="scan-outline" size={26} color={colors.blue} /></View><View><Text style={styles.processingTitle}>Searching 2,822 registered templates</Text><Text style={styles.processingSubtitle}>Demo 1:N comparison in progress</Text></View><ActivityIndicator color={colors.blue} /></View><PipelineList steps={identifySteps} activeStep={pipelineIndex} /></Card>}
+          {scanning && <Card style={styles.processingCard}><View style={styles.searchHeader}><View style={styles.radarIcon}><Ionicons name="scan-outline" size={26} color={colors.blue} /></View><View><Text style={styles.processingTitle}>Searching {candidates.length} enrolled {candidates.length === 1 ? 'template' : 'templates'}</Text><Text style={styles.processingSubtitle}>Prototype 1:N simulation in progress</Text></View><ActivityIndicator color={colors.blue} /></View><PipelineList steps={identifySteps} activeStep={pipelineIndex} /></Card>}
           {!result && !scanning && <View style={styles.qualityRow}><Pill label="Good ✓" /><Text style={styles.qualityInstruction}>Clean muzzle · steady lighting · no shadows</Text></View>}
-          {!result && !scanning && <PrimaryButton label="Scan Muzzle & Identify" icon="scan-outline" variant="blue" onPress={handleScan} />}
-          {result && <IdentificationResult animal={result} copied={copied} onCopy={handleCopy} onOpenRecord={openRecord} onNext={clearResult} />}
-          <View style={styles.disclaimer}><Ionicons name="information-circle-outline" size={19} color={colors.warning} /><Text style={styles.disclaimerText}>Demo match confidence is a prototype approximation. Field validation and a production biometric model are pending.</Text></View>
+          {!result && !scanning && <PrimaryButton label="Scan Muzzle & Identify" icon="scan-outline" variant="blue" onPress={handleScan} disabled={candidates.length === 0} />}
+          {!result && !scanning && candidates.length === 0 && (
+            <View style={styles.firstRun}>
+              <EmptyState title="Nothing to identify against" message="Your archive has no active enrolled bovines yet." />
+              <PrimaryButton label="Enrol First Bovine" icon="add" onPress={() => router.push('/register')} />
+            </View>
+          )}
+          {!result && !scanning && animals.length > 0 && (
+            <Card style={styles.lookupCard}>
+              <TextField label="Look up by MOOZZLE ID, owner, village or breed" value={query} onChangeText={setQuery} placeholder="e.g. 4827 or Patel" autoCapitalize="none" />
+              {query.replace(/\s/g, '').length >= 3 && lookupResults.length === 0 && <Text style={styles.lookupEmpty}>No bovine in your archive matches “{query.trim()}”.</Text>}
+              {lookupResults.map((animal) => (
+                <Pressable accessibilityRole="button" key={animal.id} onPress={() => chooseLookup(animal)} style={({ pressed }) => [styles.lookupRow, pressed && styles.pressed]}>
+                  <AnimalPhoto animal={animal} size={44} />
+                  <View style={styles.lookupCopy}><Text selectable style={styles.lookupId}>{formatMoozzleId(animal.moozzle_id)}</Text><Text style={styles.lookupMeta}>{animal.breed} · {animal.owner_name} · {animal.village}</Text></View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+                </Pressable>
+              ))}
+            </Card>
+          )}
+          {result && <IdentificationResult animal={result} fromLookup={fromLookup} copied={copied} onCopy={handleCopy} onOpenRecord={openRecord} onNext={clearResult} />}
+          <View style={styles.disclaimer}><Ionicons name="information-circle-outline" size={19} color={colors.warning} /><Text style={styles.disclaimerText}>Prototype scan simulation: no muzzle model runs yet, so a scan returns your latest active enrolment with an illustrative score. ID lookup searches your real Supabase records.</Text></View>
         </ScrollView>
         <BottomNav active="identify" />
       </View>
@@ -107,15 +147,15 @@ function IdentifyContent() {
   );
 }
 
-function IdentificationResult({ animal, copied, onCopy, onOpenRecord, onNext }: { animal: Animal; copied: boolean; onCopy: () => void; onOpenRecord: () => void; onNext: () => void }) {
+function IdentificationResult({ animal, fromLookup, copied, onCopy, onOpenRecord, onNext }: { animal: Animal; fromLookup: boolean; copied: boolean; onCopy: () => void; onOpenRecord: () => void; onNext: () => void }) {
   return (
     <View style={styles.resultStack}>
-      <View style={styles.identifiedBanner}><View style={styles.bannerIcon}><Ionicons name="checkmark" size={22} color={colors.surface} /></View><View><Text style={styles.bannerTitle}>ANIMAL IDENTIFIED</Text><Text style={styles.bannerSubtitle}>High Match · 94% Demo</Text></View></View>
+      <View style={styles.identifiedBanner}><View style={styles.bannerIcon}><Ionicons name="checkmark" size={22} color={colors.surface} /></View><View><Text style={styles.bannerTitle}>{fromLookup ? 'RECORD FOUND' : 'ANIMAL IDENTIFIED'}</Text><Text style={styles.bannerSubtitle}>{fromLookup ? 'Matched by ID lookup' : 'Simulated match · 94% illustrative'}</Text></View></View>
       <Card style={styles.resultCard}>
         <View style={styles.idHeader}><View><Text style={styles.idKicker}>MOOZZLE ID</Text><Text selectable style={styles.resultId}>{formatMoozzleId(animal.moozzle_id)}</Text></View><Pressable accessibilityRole="button" onPress={onCopy} style={styles.copyButton}><Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={19} color={colors.primary} /><Text style={styles.copyText}>{copied ? 'Copied' : 'Copy'}</Text></Pressable></View>
         <View style={styles.summaryLine}><Pill label={animal.animal_type} tone={animal.animal_type === 'Buffalo' ? 'blue' : 'green'} /><Text style={styles.summaryText}>{animal.breed} · {animal.sex} · {animal.age_years} yrs</Text></View>
         <Text style={styles.ownerLine}><Ionicons name="person-outline" size={15} color={colors.muted} /> {animal.owner_name} · {animal.village}</Text>
-        <View style={styles.matchScore}><View style={styles.scoreTop}><Text style={styles.scoreLabel}>Match Score</Text><Text style={styles.scoreValue}>94%</Text></View><View style={styles.scoreTrack}><View style={styles.scoreFill} /></View><Text style={styles.modelText}>Model: demo-v1.0 · Replace with validated model</Text></View>
+        {!fromLookup && <View style={styles.matchScore}><View style={styles.scoreTop}><Text style={styles.scoreLabel}>Match Score (illustrative)</Text><Text style={styles.scoreValue}>94%</Text></View><View style={styles.scoreTrack}><View style={styles.scoreFill} /></View><Text style={styles.modelText}>Model: {MODEL_VERSION} · Replace with validated model</Text></View>}
       </Card>
       <Text style={styles.comparisonTitle}>Biometric visual comparison</Text>
       <View style={styles.comparisonRow}><ComparisonImage animal={animal} label="Captured Scan" /><ComparisonImage animal={animal} label="Enrolled Reference" /></View>
@@ -172,6 +212,14 @@ const styles = StyleSheet.create({
   landmarkText: { color: colors.blue, fontFamily: Fonts.medium, fontSize: 9 },
   buttonRow: { flexDirection: 'row', gap: 10 },
   halfButton: { flex: 1, paddingHorizontal: 8 },
+  firstRun: { gap: 4 },
+  lookupCard: { gap: 10 },
+  lookupEmpty: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 13 },
+  lookupRow: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
+  lookupCopy: { flex: 1, gap: 2 },
+  lookupId: { color: colors.text, fontFamily: Fonts.bold, fontSize: 14, fontVariant: ['tabular-nums'] },
+  lookupMeta: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 12 },
+  pressed: { opacity: 0.8 },
   disclaimer: { flexDirection: 'row', gap: 7, backgroundColor: colors.warningLight, padding: 11, borderRadius: 10, alignItems: 'flex-start' },
   disclaimerText: { color: '#845A1A', flex: 1, fontFamily: Fonts.medium, fontSize: 11, lineHeight: 16 },
 });

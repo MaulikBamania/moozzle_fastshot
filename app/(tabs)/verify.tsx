@@ -13,23 +13,24 @@ import {
   OptionChip,
   Pill,
   PrimaryButton,
-  StorageGate,
+  DataGate,
+  EmptyState,
   TextField,
   Viewfinder,
 } from '@/components/moozzle-ui';
-import { useAppStore } from '@/store/useAppStore';
+import { useBovineData } from '@/store/useBovineStore';
 import type { Animal } from '@/store/types';
 import { Fonts } from '@/constants/Typography';
 
 type Outcome = 'verified' | 'not-verified' | null;
 
 export default function VerifyScreen() {
-  return <StorageGate><VerifyContent /></StorageGate>;
+  return <DataGate><VerifyContent /></DataGate>;
 }
 
 function VerifyContent() {
-  const animals = useAppStore((state) => state.animals);
-  const [idInput, setIdInput] = useState('482731905614');
+  const { animals } = useBovineData();
+  const [idInput, setIdInput] = useState('');
   const [outcome, setOutcome] = useState<Outcome>(null);
   const [demoMode, setDemoMode] = useState<'match' | 'mismatch'>('match');
   const [error, setError] = useState('');
@@ -49,7 +50,7 @@ function VerifyContent() {
         return;
       }
       if (!selectedAnimal) {
-        setError('That ID is not enrolled on this device. Check the ID or use a recent animal.');
+        setError('That ID is not enrolled in your archive. Check the ID or use a recent animal.');
         return;
       }
       setError('');
@@ -70,13 +71,14 @@ function VerifyContent() {
       <View style={styles.screenBody}>
         <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={styles.flex} contentContainerStyle={styles.content}>
           <View style={styles.titleBlock}><Text style={styles.eyebrow}>1:1 BIOMETRIC CHECK</Text><Text style={styles.title}>Verify Animal</Text><Text style={styles.subtitle}>Cross-reference a known MOOZZLE ID against a fresh muzzle scan.</Text></View>
-          <Card style={styles.inputCard}><TextField label="12-digit MOOZZLE ID" value={idInput} onChangeText={(value) => { setIdInput(value.replace(/[^0-9 ]/g, '').slice(0, 14)); setOutcome(null); }} keyboardType="number-pad" maxLength={14} placeholder="4827 3190 5614" /><View style={styles.quickHeader}><Text style={styles.quickLabel}>Recently enrolled</Text><Text style={styles.quickHint}>Tap to select</Text></View><ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickScroll} contentContainerStyle={styles.quickContent}>{recent.map((animal) => <OptionChip key={animal.moozzle_id} label={`${formatMoozzleId(animal.moozzle_id)} · ${animal.breed}`} selected={selectedAnimal?.moozzle_id === animal.moozzle_id} onPress={() => chooseAnimal(animal)} />)}</ScrollView></Card>
+          <Card style={styles.inputCard}><TextField label="12-digit MOOZZLE ID" value={idInput} onChangeText={(value) => { setIdInput(value.replace(/[^0-9 ]/g, '').slice(0, 14)); setOutcome(null); }} keyboardType="number-pad" maxLength={14} placeholder="4827 3190 5614" /><View style={styles.quickHeader}><Text style={styles.quickLabel}>Recently enrolled</Text><Text style={styles.quickHint}>{recent.length > 0 ? 'Tap to select' : 'None yet'}</Text></View><ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickScroll} contentContainerStyle={styles.quickContent}>{recent.map((animal) => <OptionChip key={animal.id} label={`${formatMoozzleId(animal.moozzle_id)} · ${animal.breed}`} selected={selectedAnimal?.moozzle_id === animal.moozzle_id} onPress={() => chooseAnimal(animal)} />)}</ScrollView></Card>
+          {animals.length === 0 && <View style={styles.firstRun}><EmptyState title="No bovines to verify" message="Verification checks a fresh scan against an animal you enrolled. Register one first." /><PrimaryButton label="Enrol First Bovine" icon="add" onPress={() => router.push('/register')} /></View>}
           {selectedAnimal ? <Card style={styles.previewCard}><AnimalPhoto animal={selectedAnimal} size={92} /><View style={styles.previewCopy}><View style={styles.previewTitleRow}><Text style={styles.previewTitle}>{selectedAnimal.breed} {selectedAnimal.animal_type}</Text><Pill label={selectedAnimal.current_status} tone={selectedAnimal.current_status === 'Active' ? 'green' : 'red'} /></View><Text style={styles.previewMeta}>{selectedAnimal.owner_name}</Text><Text style={styles.previewMeta}>{selectedAnimal.village}, {selectedAnimal.district}, {selectedAnimal.state}</Text><Text selectable style={styles.previewId}>{formatMoozzleId(selectedAnimal.moozzle_id)}</Text></View></Card> : <View style={styles.noPreview}><Ionicons name="search-outline" size={23} color={colors.muted} /><Text style={styles.noPreviewText}>Choose an enrolled ID to preview its record.</Text></View>}
           <Viewfinder label="Align the same muzzle inside the oval for a strict 1:1 check." />
           <Card style={styles.demoCard}><View style={styles.demoHeader}><Text style={styles.demoTitle}>Demo outcome mode</Text><Pill label="Prototype only" tone="amber" /></View><View style={styles.modeRow}><OptionChip label="Match" selected={demoMode === 'match'} onPress={() => { setDemoMode('match'); setOutcome(null); }} /><OptionChip label="Mismatch" selected={demoMode === 'mismatch'} onPress={() => { setDemoMode('mismatch'); setOutcome(null); }} tone="blue" /></View></Card>
           <PrimaryButton label="Run 1:1 Biometric Verification" icon="shield-checkmark-outline" onPress={handleVerify} disabled={!selectedAnimal} />
           {outcome && selectedAnimal && <VerificationOutcome outcome={outcome} animal={selectedAnimal} onRetry={() => setOutcome(null)} onOpenProfile={openProfile} />}
-          <View style={styles.disclaimer}><Ionicons name="information-circle-outline" size={19} color={colors.warning} /><Text style={styles.disclaimerText}>Confidence values are demo approximations and are not field-validated biometric accuracy.</Text></View>
+          <View style={styles.disclaimer}><Ionicons name="information-circle-outline" size={19} color={colors.warning} /><Text style={styles.disclaimerText}>The ID lookup checks your real Supabase records. The biometric outcome is a prototype simulation chosen by the mode above; no muzzle model runs yet.</Text></View>
         </ScrollView>
         <BottomNav active="verify" />
       </View>
@@ -128,6 +130,7 @@ const styles = StyleSheet.create({
   outcomeActions: { width: '100%', flexDirection: 'row', gap: 9, marginTop: 5 },
   outcomeButton: { flex: 1, paddingHorizontal: 7 },
   outcomeSmall: { color: colors.muted, fontFamily: Fonts.medium, fontSize: 11 },
+  firstRun: { gap: 4 },
   disclaimer: { flexDirection: 'row', gap: 7, backgroundColor: colors.warningLight, padding: 11, borderRadius: 10, alignItems: 'flex-start' },
   disclaimerText: { color: '#845A1A', flex: 1, fontFamily: Fonts.medium, fontSize: 11, lineHeight: 16 },
 });
