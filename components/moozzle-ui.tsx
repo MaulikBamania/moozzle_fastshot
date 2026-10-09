@@ -173,7 +173,7 @@ export function AppHeader({ language, onLanguageChange, onNetworkPress, offline 
         <LogoMark />
         <View style={styles.brandCopy}>
           <Text style={styles.brandName}>MOOZZLE</Text>
-          <Text adjustsFontSizeToFit numberOfLines={1} style={styles.brandSubtitle}>Bovine Biometric Identification</Text>
+          <Text numberOfLines={2} style={styles.brandSubtitle}>Bovine Biometric Identification</Text>
         </View>
       </View>
       <View style={styles.headerActions}>
@@ -195,13 +195,13 @@ export function AppHeader({ language, onLanguageChange, onNetworkPress, offline 
         {onNetworkPress ? (
           <Pressable accessibilityRole="button" accessibilityLabel="Open offline sync manager" onPress={onNetworkPress} style={[styles.networkChip, offline && styles.networkChipOffline]}>
             <View style={[styles.onlineDot, offline && styles.offlineDot]} />
-            <Text adjustsFontSizeToFit numberOfLines={1} style={[styles.networkText, offline && styles.networkTextOffline]}>{tr(language, offline ? 'offline' : 'online')}</Text>
+            <Text adjustsFontSizeToFit minimumFontScale={0.85} numberOfLines={1} style={[styles.networkText, offline && styles.networkTextOffline]}>{tr(language, offline ? 'offline' : 'online')}</Text>
             <Ionicons name="chevron-forward" size={13} color={offline ? colors.warning : colors.primary} />
           </Pressable>
         ) : (
           <View style={[styles.networkChip, offline && styles.networkChipOffline]}>
             <View style={[styles.onlineDot, offline && styles.offlineDot]} />
-            <Text adjustsFontSizeToFit numberOfLines={1} style={[styles.networkText, offline && styles.networkTextOffline]}>{tr(language, offline ? 'offline' : 'online')}</Text>
+            <Text adjustsFontSizeToFit minimumFontScale={0.85} numberOfLines={1} style={[styles.networkText, offline && styles.networkTextOffline]}>{tr(language, offline ? 'offline' : 'online')}</Text>
           </View>
         )}
       </View>
@@ -420,18 +420,18 @@ const styles = StyleSheet.create({
   logoMarkText: { color: colors.surface, fontFamily: Fonts.bold, fontSize: 13, position: 'absolute', bottom: 8 },
   brandCopy: { flex: 1, minWidth: 0, gap: 1 },
   brandName: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 23, letterSpacing: 0.2 },
-  brandSubtitle: { color: '#526A84', fontFamily: Fonts.medium, fontSize: 10, letterSpacing: -0.15 },
-  headerActions: { width: 132, flexShrink: 0, alignItems: 'flex-end', gap: 9, paddingTop: 8 },
+  brandSubtitle: { color: '#526A84', fontFamily: Fonts.medium, fontSize: 9, lineHeight: 11, letterSpacing: -0.35, flexShrink: 1 },
+  headerActions: { width: 148, flexShrink: 0, alignItems: 'flex-end', gap: 9, paddingTop: 8 },
   languageRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   languageItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   languageText: { color: colors.muted, fontFamily: Fonts.semiBold, fontSize: 12 },
   languageActive: { color: colors.primary },
   languageDivider: { color: '#94A3B8', fontSize: 12 },
-  networkChip: { width: 132, backgroundColor: colors.primaryLight, borderRadius: 18, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 8, gap: 5 },
+  networkChip: { width: 148, backgroundColor: colors.primaryLight, borderRadius: 18, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 7, gap: 5 },
   networkChipOffline: { backgroundColor: colors.warningLight },
   onlineDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.accent },
   offlineDot: { backgroundColor: colors.warning },
-  networkText: { flex: 1, color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 9.5, letterSpacing: -0.15 },
+  networkText: { flex: 1, minWidth: 0, color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 9, letterSpacing: -0.2 },
   networkTextOffline: { color: colors.warning },
   pageHeader: { minHeight: 62, paddingHorizontal: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },
   backButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border },

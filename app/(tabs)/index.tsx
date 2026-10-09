@@ -146,7 +146,7 @@ function QuickLink({ icon, title, detail, tone, onPress }: { icon: keyof typeof 
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.quickLink, pressed && styles.tilePressed]}>
       <View style={[styles.quickIcon, { backgroundColor: tone === 'blue' ? colors.blueLight : colors.primaryLight }]}><Ionicons name={icon} size={20} color={accent} /></View>
-      <View style={styles.quickCopy}><Text style={styles.quickTitle}>{title}</Text><Text numberOfLines={2} style={styles.quickDetail}>{detail}</Text></View>
+      <View style={styles.quickCopy}><Text adjustsFontSizeToFit minimumFontScale={0.85} numberOfLines={1} style={styles.quickTitle}>{title}</Text><Text numberOfLines={2} style={styles.quickDetail}>{detail}</Text></View>
       <Ionicons name="chevron-forward" size={18} color={colors.muted} />
     </Pressable>
   );
@@ -175,7 +175,7 @@ function formatRecentId(id: string) {
 const styles = StyleSheet.create({
   screenBody: { flex: 1 },
   homeScroll: { flex: 1 },
-  homeContent: { paddingHorizontal: 10, paddingTop: 10, paddingBottom: 6, gap: 10 },
+  homeContent: { paddingHorizontal: 10, paddingTop: 10, paddingBottom: 112, gap: 10 },
   statsCard: { padding: 8, backgroundColor: '#FBFFFC', borderColor: '#D6E9DE' },
   statsTop: { flexDirection: 'row', minHeight: 52 },
   statsMain: { flex: 0.9, justifyContent: 'center', gap: 0 },
@@ -191,11 +191,11 @@ const styles = StyleSheet.create({
   syncText: { color: colors.warning, fontFamily: Fonts.semiBold, fontSize: 13 },
   actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  quickLink: { width: '47.5%', minHeight: 78, borderRadius: 13, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  quickLink: { width: '48%', minHeight: 78, borderRadius: 13, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 8 },
   quickIcon: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
-  quickCopy: { flex: 1, gap: 3 },
-  quickTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 11 },
-  quickDetail: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 9.5, lineHeight: 13 },
+  quickCopy: { flex: 1, minWidth: 0, gap: 3 },
+  quickTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 10, lineHeight: 13, letterSpacing: -0.15, flexShrink: 1 },
+  quickDetail: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 9.5, lineHeight: 13, flexShrink: 1 },
   actionTile: { width: '47.5%', height: 118, borderRadius: 14, padding: 10, position: 'relative', flexDirection: 'column', alignItems: 'flex-start', shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
   actionIcon: { width: 36, height: 36, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   actionIconLight: { backgroundColor: colors.surface },
