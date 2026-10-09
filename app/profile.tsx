@@ -4,11 +4,10 @@ import { router } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { authErrorMessage, InlineError } from '@/components/auth-ui';
-import { AppScreen, Card, colors, DataGate, OptionChip, PageHeader, Pill, PrimaryButton, TextField } from '@/components/moozzle-ui';
+import { RoleBadge, RoleSwitcherModal } from '@/components/app-chrome';
+import { AppScreen, Card, colors, DataGate, PageHeader, Pill, PrimaryButton, TextField } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
-import { supabase } from '@/lib/supabase';
-import { USER_ROLES, type ProfileRow, type UserRole } from '@/store/types';
-import { loadBovineData, messageOf, useBovineData, useBovineStore } from '@/store/useBovineStore';
+import { logAudit, messageOf, updateOwnProfile, useBovineData, useBovineStore, useSession } from '@/store/useBovineStore';
 import { useIsOnline } from '@/store/useConnectivity';
 
 export default function ProfileScreen() {
@@ -22,7 +21,8 @@ function ProfileContent() {
   const online = useIsOnline();
   const [editing, setEditing] = useState(false);
   const [fullName, setFullName] = useState('');
-  const [role, setRole] = useState<UserRole>('Field Officer');
+  const session = useSession();
+  const [switcherOpen, setSwitcherOpen] = useState(false);
   const [phone, setPhone] = useState('');
   const [village, setVillage] = useState('');
   const [saving, setSaving] = useState(false);
@@ -32,7 +32,6 @@ function ProfileContent() {
 
   const startEditing = useCallback(() => {
     setFullName(profile?.full_name ?? '');
-    setRole(profile?.role ?? 'Field Officer');
     setPhone(profile?.phone ?? '');
     setVillage(profile?.village ?? '');
     setError(null);
@@ -50,10 +49,7 @@ function ProfileContent() {
     setError(null);
     setNotice(null);
     try {
-      const payload: ProfileRow = { id: user.id, full_name: fullName.trim(), role, phone: phone.trim(), village: village.trim() };
-      const { error: saveError } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' });
-      if (saveError) throw saveError;
-      await loadBovineData();
+      await updateOwnProfile({ full_name: fullName.trim(), phone: phone.trim(), village: village.trim() });
       setEditing(false);
       setNotice('Profile saved.');
     } catch (caught) {
@@ -62,12 +58,13 @@ function ProfileContent() {
     } finally {
       setSaving(false);
     }
-  }, [fullName, phone, role, user, village]);
+  }, [fullName, phone, user, village]);
 
   const handleSignOut = useCallback(async () => {
     setSigningOut(true);
     setError(null);
     try {
+      await logAudit('auth.logout', '', 'Signed out', 'success');
       await signOut();
       // AuthProvider returns to the sign-in screen.
     } catch (caught) {
@@ -89,7 +86,7 @@ function ProfileContent() {
           <Text selectable style={styles.name}>{name}</Text>
           <Text selectable style={styles.email}>{user?.email ?? ''}</Text>
           <View style={styles.pills}>
-            <Pill label={profile?.role ?? 'Field Officer'} />
+            {session.role ? <RoleBadge role={session.role} /> : null}
             <Pill label={online ? 'Online' : 'Offline'} tone={online ? 'green' : 'amber'} />
           </View>
         </View>
@@ -98,7 +95,7 @@ function ProfileContent() {
       {notice ? <View style={styles.notice}><Ionicons name="checkmark-circle" size={18} color={colors.accent} /><Text style={styles.noticeText}>{notice}</Text></View> : null}
 
       <View style={styles.stats}>
-        <Stat label="Bovines" value={animals.length} />
+        <Stat label="Animals in scope" value={animals.length} />
         <Stat label="Service entries" value={records.length} />
         <Stat label="Queued" value={pendingCount} tone={pendingCount > 0 ? 'amber' : 'green'} />
       </View>
@@ -111,8 +108,6 @@ function ProfileContent() {
         {editing ? (
           <>
             <TextField label="Full name" value={fullName} onChangeText={setFullName} />
-            <Text style={styles.label}>Role</Text>
-            <View style={styles.roleRow}>{USER_ROLES.map((item) => <OptionChip key={item} label={item} selected={role === item} onPress={() => setRole(item)} />)}</View>
             <TextField label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
             <TextField label="Village" value={village} onChangeText={setVillage} />
             <View style={styles.row}>
@@ -122,7 +117,8 @@ function ProfileContent() {
           </>
         ) : (
           <View style={styles.grid}>
-            <Detail label="Role" value={profile?.role ?? '—'} />
+            <Detail label="Active role" value={session.role ?? '—'} />
+            <Detail label="Scope" value={session.scopeLabel} />
             <Detail label="Phone" value={profile?.phone || '—'} />
             <Detail label="Village" value={profile?.village || '—'} />
             <Detail label="Member since" value={user?.created_at ? new Date(user.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'} />
@@ -130,10 +126,20 @@ function ProfileContent() {
         )}
       </Card>
 
+      <Card style={styles.card}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardTitle}>Assigned roles</Text>
+          {session.roles.length > 1 ? <PrimaryButton label="Switch" icon="swap-horizontal-outline" variant="soft" onPress={() => setSwitcherOpen(true)} style={styles.smallButton} /> : null}
+        </View>
+        <View style={styles.roleRow}>{session.roles.map((item) => <Pill key={item} label={item === session.role ? `${item} · active` : item} tone={item === session.role ? 'green' : 'slate'} />)}</View>
+        <Text style={styles.hint}>Roles are assigned by an administrator and verified by the server. You cannot add roles yourself.</Text>
+      </Card>
+
       <InlineError message={error} />
       <PrimaryButton label="Sync Manager" icon="sync-outline" variant="outline" onPress={() => router.push('/sync')} />
       <PrimaryButton label={signingOut ? 'Signing out…' : 'Sign Out'} icon="log-out-outline" variant="danger" onPress={() => void handleSignOut()} disabled={signingOut} />
       {pendingCount > 0 ? <Text style={styles.hint}>{pendingCount} queued item(s) stay on this device and will sync next time you sign in to this account.</Text> : null}
+      <RoleSwitcherModal visible={switcherOpen} onClose={() => setSwitcherOpen(false)} />
     </AppScreen>
   );
 }

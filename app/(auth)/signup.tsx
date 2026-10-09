@@ -4,14 +4,12 @@ import { Link, router } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { AuthShell, authErrorMessage, InlineError } from '@/components/auth-ui';
-import { colors, OptionChip, PrimaryButton, TextField } from '@/components/moozzle-ui';
+import { colors, PrimaryButton, TextField } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
-import { USER_ROLES, type UserRole } from '@/store/types';
 
 export default function SignUpScreen() {
   const { signUpWithEmail, isLoading } = useAuth();
   const [fullName, setFullName] = useState('');
-  const [role, setRole] = useState<UserRole>('AI Technician');
   const [phone, setPhone] = useState('');
   const [village, setVillage] = useState('');
   const [email, setEmail] = useState('');
@@ -26,7 +24,7 @@ export default function SignUpScreen() {
     if (password.length < 6) return setErrorMessage('Use a password with at least 6 characters.');
     try {
       const result = await signUpWithEmail(email.trim(), password, {
-        data: { full_name: fullName.trim(), role, phone: phone.trim(), village: village.trim() },
+        data: { full_name: fullName.trim(), phone: phone.trim(), village: village.trim() },
       });
       if (result.emailConfirmationRequired) setConfirmationEmail(result.email || email.trim());
       // With a session, AuthProvider routes to the app.
@@ -34,7 +32,7 @@ export default function SignUpScreen() {
       console.error('Sign-up failed', error);
       setErrorMessage(authErrorMessage(error, 'Unable to create your account. Please try again.'));
     }
-  }, [email, fullName, password, phone, role, signUpWithEmail, village]);
+  }, [email, fullName, password, phone, signUpWithEmail, village]);
 
   if (confirmationEmail) {
     return (
@@ -51,13 +49,11 @@ export default function SignUpScreen() {
   }
 
   return (
-    <AuthShell title="Create your account" subtitle="Your enrolled bovines and service records are private to this account.">
+    <AuthShell title="Create your account" subtitle="Register your cattle and buffalo and see their health and breeding records.">
       <TextField label="Full name" value={fullName} onChangeText={setFullName} autoComplete="name" placeholder="e.g. Ramesh Patel" />
       <View style={styles.roleBlock}>
-        <Text style={styles.label}>Role</Text>
-        <View style={styles.roleRow}>
-          {USER_ROLES.map((item) => <OptionChip key={item} label={item} selected={role === item} onPress={() => setRole(item)} />)}
-        </View>
+        <Text style={styles.label}>Account type: Farmer / Animal Owner</Text>
+        <Text style={styles.roleNote}>Self-registration creates a farmer account. Staff roles (veterinarian, technician, officer, administrator) are assigned by your organisation administrator after sign-up.</Text>
       </View>
       <View style={styles.row}>
         <TextField label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="+91 98765 43210" style={styles.half} />
@@ -78,7 +74,7 @@ export default function SignUpScreen() {
 const styles = StyleSheet.create({
   roleBlock: { gap: 8 },
   label: { color: colors.text, fontFamily: Fonts.semiBold, fontSize: 13 },
-  roleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  roleNote: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 12, lineHeight: 17 },
   row: { flexDirection: 'row', gap: 10 },
   half: { flex: 1 },
   link: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 13, paddingVertical: 6 },

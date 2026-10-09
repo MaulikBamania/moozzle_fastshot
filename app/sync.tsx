@@ -31,6 +31,9 @@ function SyncContent() {
   const setOfflineMode = useAppStore((state) => state.setOfflineMode);
   const syncQueue = useAppStore((state) => state.syncQueue);
   const lastSyncSummary = useAppStore((state) => state.lastSyncSummary);
+  const allFailed = useAppStore((state) => state.failedOps);
+  const discardFailed = useAppStore((state) => state.discardFailed);
+  const requeueFailed = useAppStore((state) => state.requeueFailed);
   const userId = useBovineStore((state) => state.userId);
   const reachable = useConnectivity((state) => state.reachable);
   const checking = useConnectivity((state) => state.checking);
@@ -40,6 +43,7 @@ function SyncContent() {
   const [error, setError] = useState('');
 
   const queue = useMemo(() => syncQueue.filter((op) => op.userId === userId), [syncQueue, userId]);
+  const failed = useMemo(() => allFailed.filter((item) => item.operation.userId === userId), [allFailed, userId]);
   const pendingRecords = useMemo(() => queue.filter((op) => op.kind === 'animal').length, [queue]);
   const pendingImages = pendingRecords;
   const pendingEntries = useMemo(() => queue.filter((op) => op.kind !== 'animal').length, [queue]);
@@ -67,7 +71,7 @@ function SyncContent() {
       if (!ok) throw new Error('Supabase is unreachable. Check your network and try again.');
       const summary = await syncQueuedOperations();
       if (summary.errors > 0) {
-        setError(`${summary.errors} item(s) could not be uploaded and remain queued. Retry when the connection is stable.`);
+        setError(`${summary.errors} item(s) were not uploaded${summary.revoked ? ` (${summary.revoked} rejected because your current role is no longer authorised)` : ''}. See Failed uploads below.`);
         setSyncState('error');
       } else {
         setSyncState('completed');
@@ -117,7 +121,7 @@ function SyncContent() {
         <Card style={styles.queueCard}>
           <QueueRow icon="paw-outline" label="Offline-enrolled bovine records" value={pendingRecords} tone="green" />
           <QueueRow icon="finger-print-outline" label="Biometric templates" value={pendingImages} tone="blue" />
-          <QueueRow icon="medkit-outline" label="AI / health / insurance / retirement entries" value={pendingEntries} tone="amber" />
+          <QueueRow icon="medkit-outline" label="Health / AI / traceability entries" value={pendingEntries} tone="amber" />
           <View style={styles.queueNote}>
             <Ionicons name="lock-closed-outline" size={16} color={colors.muted} />
             <Text style={styles.queueNoteText}>{hasPendingItems ? 'Queued items are stored on this device for your account only.' : 'Nothing is waiting. Everything you recorded is in Supabase.'}</Text>
@@ -136,6 +140,34 @@ function SyncContent() {
           {error ? <Text selectable style={styles.errorText}>{error}</Text> : null}
         </Card>
 
+        {failed.length > 0 ? (
+          <Card style={styles.summaryCard}>
+            <Text style={styles.cardTitle}>Failed uploads ({failed.length})</Text>
+            <Text style={styles.cardDescription}>The server re-checked these against your current role and scope and refused them. Newer server records are never overwritten.</Text>
+            {failed.map((item) => (
+              <View key={item.operation.opId} style={styles.failedRow}>
+                <View style={styles.encryptionCopy}>
+                  <Text style={styles.encryptionTitle}>{item.operation.kind === 'animal' ? `Registration · ${item.operation.payload.breed}` : `${item.operation.payload.title} · ${item.operation.moozzleId}`} · queued as {item.operation.role}</Text>
+                  <Text selectable style={styles.errorText}>{item.revoked ? 'Access revoked: ' : ''}{item.error}</Text>
+                </View>
+                <View style={styles.failedActions}>
+                  <PrimaryButton label="Retry" variant="soft" onPress={() => requeueFailed(item.operation.opId)} style={styles.checkButton} />
+                  <PrimaryButton label="Discard" variant="danger" onPress={() => discardFailed(item.operation.opId)} style={styles.checkButton} />
+                </View>
+              </View>
+            ))}
+          </Card>
+        ) : null}
+
+        {lastSyncSummary?.conflicts?.length ? (
+          <Card style={styles.summaryCard}>
+            <Text style={styles.cardTitle}>Conflict warnings</Text>
+            {lastSyncSummary.conflicts.map((conflict) => (
+              <Text key={`${conflict.provisionalId}-${conflict.note}`} selectable style={styles.cardDescription}>{conflict.provisionalId} → {conflict.assignedId}: {conflict.note}</Text>
+            ))}
+          </Card>
+        ) : null}
+
         <Card style={styles.summaryCard}>
           <View style={styles.summaryHeading}>
             <Text style={styles.cardTitle}>Latest sync output</Text>
@@ -151,7 +183,7 @@ function SyncContent() {
             <Ionicons name="shield-checkmark-outline" size={18} color={colors.warning} />
             <View style={styles.encryptionCopy}>
               <Text style={styles.encryptionTitle}>Local queue encryption status</Text>
-              <Text selectable style={styles.encryptionText}>Cloud records are protected by per-account row-level security. The on-device queue uses plain app storage; an encrypted adapter is required before production.</Text>
+              <Text selectable style={styles.encryptionText}>Cloud records are protected by role-scoped row-level security and every upload is re-authorised by the server. The on-device queue uses plain app storage; an encrypted adapter is required before production.</Text>
             </View>
           </View>
         </Card>
@@ -186,6 +218,8 @@ function formatTimestamp(value: string) {
 
 const styles = StyleSheet.create({
   content: { gap: 14, paddingBottom: 24 },
+  failedRow: { gap: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 },
+  failedActions: { flexDirection: 'row', gap: 8 },
   modeCard: { gap: 14, backgroundColor: '#FBFFFC', borderColor: '#D6E9DE' },
   modeCopy: { flexDirection: 'row', gap: 11, alignItems: 'center' },
   modeIcon: { width: 45, height: 45, borderRadius: 14, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' },

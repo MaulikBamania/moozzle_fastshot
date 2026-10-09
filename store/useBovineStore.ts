@@ -1,6 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import { useMemo } from 'react';
 import { create } from 'zustand';
+import { NO_PERMISSIONS, PERMISSIONS, isLevel, isRole, ROLE_EXPERIENCE, type PermissionMap, type Role } from '@/lib/rbac';
 import { supabase } from '@/lib/supabase';
 import { useAppStore } from './useAppStore';
 import { isOnlineNow, useConnectivity } from './useConnectivity';
@@ -8,30 +9,49 @@ import type {
   Animal,
   AnimalRow,
   AnimalType,
-  BiometricTemplate,
-  BiometricTemplateRow,
+  FarmRow,
   LivestockServiceRecord,
+  NotificationRow,
+  OrganisationRow,
+  OwnerRow,
+  PolicyRow,
   ProfileRow,
   QueuedOperation,
+  RegisterPayload,
+  RequestKind,
+  RequestRow,
+  ServicePayload,
   ServiceRecordRow,
   ServiceType,
+  SettingRow,
   Sex,
+  SyncConflict,
   SyncSummary,
+  UserRoleRow,
 } from './types';
 
 export type DataPhase = 'idle' | 'loading' | 'ready' | 'error' | 'offline';
-
-export const MODEL_VERSION = 'moozzle-proto-v1.0';
 
 interface BovineState {
   userId: string | null;
   phase: DataPhase;
   error: string | null;
   profile: ProfileRow | null;
+  myRoles: UserRoleRow[];
+  permissions: PermissionMap;
+  organisations: OrganisationRow[];
+  farms: FarmRow[];
   animalRows: AnimalRow[];
-  templateRows: BiometricTemplateRow[];
+  ownerRows: OwnerRow[];
   serviceRows: ServiceRecordRow[];
+  policyRows: PolicyRow[];
+  requestRows: RequestRow[];
+  notifications: NotificationRow[];
+  settings: SettingRow[];
   refreshing: boolean;
+  switchingRole: boolean;
+  /** Multi-role users pick a workspace once per sign-in. */
+  roleConfirmed: boolean;
 }
 
 export interface NewAnimalInput {
@@ -41,23 +61,31 @@ export interface NewAnimalInput {
   ageYears: number;
   ownerName: string;
   ownerPhone: string;
+  farmId: string | null;
   farmName: string;
   village: string;
   district: string;
   state: string;
   capturedImages: number;
   qualityScore: number;
+  saveAsDraft: boolean;
 }
 
 export interface NewServiceInput {
   animalId: string;
+  moozzleId: string;
   serviceType: ServiceType;
   title: string;
   technicianName: string;
   details: Record<string, string>;
+  correctsId?: string | null;
 }
 
-export interface WriteResult {
+export interface RegisterResult {
+  id: string;
+  moozzleId: string;
+  approvalStatus: string;
+  duplicate: boolean;
   queued: boolean;
 }
 
@@ -66,37 +94,50 @@ const initialState: BovineState = {
   phase: 'idle',
   error: null,
   profile: null,
+  myRoles: [],
+  permissions: NO_PERMISSIONS,
+  organisations: [],
+  farms: [],
   animalRows: [],
-  templateRows: [],
+  ownerRows: [],
   serviceRows: [],
+  policyRows: [],
+  requestRows: [],
+  notifications: [],
+  settings: [],
   refreshing: false,
+  switchingRole: false,
+  roleConfirmed: false,
 };
 
 export const useBovineStore = create<BovineState>()(() => initialState);
 
-// Guards so a slow snapshot can never overwrite a newer mutation or another account's data.
+// Guards so a slow snapshot never overwrites a newer mutation, role or account.
 let loadSequence = 0;
 let mutationRevision = 0;
 
 export function messageOf(error: unknown, fallback: string): string {
   if (typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string' && error.message) {
-    return error.message;
+    const message = error.message;
+    const denied = /^permission_denied:\s*(.+)$/i.exec(message);
+    if (denied) return `You do not have permission to ${denied[1]}. Contact your organisation administrator if you believe this is incorrect.`;
+    return message;
   }
   return fallback;
 }
 
+export function isPermissionError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const code = 'code' in error ? String(error.code) : '';
+  return code === '42501' || /permission_denied|permission denied/i.test(messageOf(error, ''));
+}
+
 export function isNetworkError(error: unknown): boolean {
-  const message = messageOf(error, '');
+  const message = typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : '';
   return /failed to fetch|network request failed|networkerror|fetch failed|load failed|timed? ?out/i.test(message);
 }
 
-function isMoozzleConflict(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false;
-  const code = 'code' in error ? String(error.code) : '';
-  return code === '23505' && /moozzle/i.test(messageOf(error, ''));
-}
-
-/** 12 random digits, first digit non-zero. Uniqueness is enforced by the database. */
+/** Provisional 12-digit ID for offline work; the server confirms or replaces it on sync. */
 export function generateMoozzleId(): string {
   const bytes = Crypto.getRandomBytes(12);
   const digits = Array.from(bytes, (byte) => String(byte % 10));
@@ -104,18 +145,13 @@ export function generateMoozzleId(): string {
   return digits.join('');
 }
 
-function embeddingPreview(): string {
-  const bytes = Crypto.getRandomBytes(8);
-  return Array.from(bytes, (byte) => (byte / 255).toFixed(3)).join(',');
-}
-
 function bump() {
   mutationRevision += 1;
 }
 
-function upsertById<T extends { id: string }>(rows: T[], row: T): T[] {
-  const exists = rows.some((item) => item.id === row.id);
-  return exists ? rows.map((item) => (item.id === row.id ? row : item)) : [row, ...rows];
+function activeRoleOf(state: BovineState): Role | null {
+  const role = state.profile?.active_role;
+  return role && state.myRoles.some((item) => item.role === role) ? role : null;
 }
 
 /** Switches the data store to a signed-in account (or clears it on sign-out). */
@@ -127,6 +163,12 @@ export function setActiveUser(userId: string | null) {
   if (userId) void loadBovineData();
 }
 
+async function selectAll<T>(query: PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function loadBovineData(): Promise<void> {
   const { userId, phase } = useBovineStore.getState();
   if (!userId) return;
@@ -134,34 +176,62 @@ export async function loadBovineData(): Promise<void> {
   const revision = mutationRevision;
   useBovineStore.setState(phase === 'ready' ? { refreshing: true } : { phase: 'loading', error: null });
   try {
-    const [animals, templates, services, profile] = await Promise.all([
-      supabase.from('animals').select('*').order('created_at', { ascending: false }),
-      supabase.from('biometric_templates').select('*'),
-      supabase.from('service_records').select('*').order('date', { ascending: false }).order('created_at', { ascending: false }),
-      supabase.from('profiles').select('id, full_name, role, phone, village').eq('id', userId).maybeSingle(),
+    const [profileResult, myRoles] = await Promise.all([
+      supabase.from('profiles').select('id, full_name, email, active_role, phone, village, privileged_until, privileged_reason, notification_prefs').eq('id', userId).maybeSingle(),
+      selectAll<UserRoleRow>(supabase.from('user_roles').select('id, user_id, role, organisation_id, farm_ids, districts, created_at').eq('user_id', userId).order('created_at')),
     ]);
-    const failure = animals.error ?? templates.error ?? services.error ?? profile.error;
-    if (failure) throw failure;
+    if (profileResult.error) throw profileResult.error;
+    const profile = profileResult.data as ProfileRow | null;
+    if (!profile) throw new Error('Your MOOZZLE profile could not be found. Contact your organisation administrator.');
+    const role = profile.active_role;
+
+    const [permissionRows, organisations, farms, animalRows, ownerRows, serviceRows, policyRows, requestRows, notifications, settings] = await Promise.all([
+      selectAll<{ permission: string; level: string }>(supabase.from('role_permissions').select('permission, level').eq('role', role)),
+      selectAll<OrganisationRow>(supabase.from('organisations').select('id, name, org_type, district, state').order('name')),
+      selectAll<FarmRow>(supabase.from('farms').select('id, organisation_id, name, village, district, state').order('name')),
+      selectAll<AnimalRow>(supabase.from('animals').select('*').order('created_at', { ascending: false })),
+      selectAll<OwnerRow>(supabase.from('animal_owners').select('animal_id, owner_name, owner_phone')),
+      selectAll<ServiceRecordRow>(supabase.from('service_records').select('*').order('date', { ascending: false }).order('created_at', { ascending: false })),
+      selectAll<PolicyRow>(supabase.from('insurance_policies').select('*').order('created_at', { ascending: false })),
+      selectAll<RequestRow>(supabase.from('record_requests').select('*').order('created_at', { ascending: false })),
+      selectAll<NotificationRow>(supabase.from('notifications').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(100)),
+      selectAll<SettingRow>(supabase.from('platform_settings').select('key, value, description, risk, updated_at').order('key')),
+    ]);
     if (sequence !== loadSequence || revision !== mutationRevision || useBovineStore.getState().userId !== userId) return;
+
+    const permissions = { ...NO_PERMISSIONS };
+    for (const row of permissionRows) {
+      if ((PERMISSIONS as readonly string[]).includes(row.permission) && isLevel(row.level)) {
+        permissions[row.permission as keyof PermissionMap] = row.level;
+      }
+    }
     useBovineStore.setState({
       phase: 'ready',
       error: null,
       refreshing: false,
-      animalRows: (animals.data ?? []) as AnimalRow[],
-      templateRows: (templates.data ?? []) as BiometricTemplateRow[],
-      serviceRows: (services.data ?? []) as ServiceRecordRow[],
-      profile: (profile.data as ProfileRow | null) ?? null,
+      profile,
+      myRoles: myRoles.filter((item) => isRole(item.role)),
+      // Deny by default: an active role that is not assigned grants nothing.
+      permissions: myRoles.some((item) => item.role === role) ? permissions : NO_PERMISSIONS,
+      organisations,
+      farms,
+      animalRows,
+      ownerRows,
+      serviceRows,
+      policyRows,
+      requestRows,
+      notifications,
+      settings,
     });
   } catch (error) {
-    console.error('Could not load bovine records from Supabase', error);
+    console.error('Could not load MOOZZLE records from Supabase', error);
     if (sequence !== loadSequence || useBovineStore.getState().userId !== userId) return;
     if (isNetworkError(error)) void useConnectivity.getState().check();
     const current = useBovineStore.getState();
     useBovineStore.setState({
       refreshing: false,
-      // Keep showing an already loaded snapshot; surface the error.
       phase: current.phase === 'ready' || current.phase === 'offline' ? current.phase : 'error',
-      error: messageOf(error, 'Your bovine records could not be loaded.'),
+      error: messageOf(error, 'Your records could not be loaded.'),
     });
   }
 }
@@ -171,10 +241,11 @@ export function continueOffline() {
   useBovineStore.setState({ phase: 'offline' });
 }
 
-function requireUser(): string {
-  const { userId } = useBovineStore.getState();
-  if (!userId) throw new Error('Please sign in again to save records.');
-  return userId;
+function requireSession(): { userId: string; role: Role } {
+  const state = useBovineStore.getState();
+  const role = activeRoleOf(state);
+  if (!state.userId || !role) throw new Error('Please sign in again to continue.');
+  return { userId: state.userId, role };
 }
 
 async function afterWrite() {
@@ -182,121 +253,137 @@ async function afterWrite() {
   await loadBovineData();
 }
 
-export async function createAnimal(input: NewAnimalInput): Promise<{ animal: Animal; queued: boolean }> {
-  const userId = requireUser();
-  bump();
-  const now = new Date().toISOString();
-  const animalId = Crypto.randomUUID();
-  const templateId = Crypto.randomUUID();
-  const baseAnimal = {
-    id: animalId,
-    user_id: userId,
-    species: input.animalType === 'Cattle' ? ('cattle' as const) : ('buffalo' as const),
+/** Calls a checked server operation; denials are recorded in the audit trail. */
+async function rpc<T>(fn: string, args: Record<string, unknown>, target = ''): Promise<T> {
+  const { data, error } = await supabase.rpc(fn, args);
+  if (error) {
+    if (isPermissionError(error)) void logAudit('access.denied', target, `${fn}: ${messageOf(error, 'denied')}`.slice(0, 200), 'denied');
+    throw error;
+  }
+  return data as T;
+}
+
+/** Writes a client-observed event to the audit trail. Never throws; failures are logged. */
+export async function logAudit(action: string, target = '', details = '', outcome: 'success' | 'denied' | 'failed' | 'no_match' | 'requested' = 'success', reason = ''): Promise<void> {
+  if (!useBovineStore.getState().userId) return;
+  try {
+    const { error } = await supabase.rpc('log_audit', { p_action: action, p_target: target, p_details: details, p_outcome: outcome, p_reason: reason, p_source: 'moozzle-app' });
+    if (error) console.error('Audit event was not recorded', action, error);
+  } catch (error) {
+    console.error('Audit event was not recorded', action, error);
+  }
+}
+
+export async function switchRole(role: Role): Promise<void> {
+  const state = useBovineStore.getState();
+  if (!state.userId) throw new Error('Please sign in again.');
+  if (!state.myRoles.some((item) => item.role === role)) throw new Error('This role is not assigned to your account.');
+  useBovineStore.setState({ switchingRole: true });
+  try {
+    await rpc<string>('set_active_role', { p_role: role });
+    loadSequence += 1;
+    bump();
+    // Clear everything the previous role could see before loading the new scope.
+    useBovineStore.setState({ ...initialState, userId: state.userId, phase: 'loading', switchingRole: false, roleConfirmed: true });
+    await loadBovineData();
+  } finally {
+    useBovineStore.setState({ switchingRole: false });
+  }
+}
+
+export function confirmRole() {
+  useBovineStore.setState({ roleConfirmed: true });
+}
+
+export async function startPrivilegedAccess(reason: string): Promise<void> {
+  await rpc('start_privileged_access', { p_reason: reason });
+  await afterWrite();
+}
+
+export async function endPrivilegedAccess(): Promise<void> {
+  await rpc('end_privileged_access', {});
+  await afterWrite();
+}
+
+function toRegisterPayload(input: NewAnimalInput): RegisterPayload {
+  return {
+    id: Crypto.randomUUID(),
+    moozzle_id: generateMoozzleId(),
+    species: input.animalType === 'Cattle' ? 'cattle' : 'buffalo',
     breed: input.breed,
-    sex: input.sex === 'Female' ? ('female' as const) : ('male' as const),
+    sex: input.sex === 'Female' ? 'female' : 'male',
     age_years: input.ageYears,
     owner_name: input.ownerName.trim(),
     owner_phone: input.ownerPhone.trim(),
+    farm_id: input.farmId,
     farm_name: input.farmName.trim(),
     village: input.village.trim(),
     district: input.district.trim(),
     state: input.state.trim(),
-    biometric_status: 'enrolled' as const,
-    status: 'active' as const,
-    retire_reason: null,
-    retired_at: null,
     captured_images_count: input.capturedImages,
-  };
-  const templateBase = {
-    id: templateId,
-    user_id: userId,
-    animal_id: animalId,
     quality_score: input.qualityScore,
-    embedding_preview: embeddingPreview(),
-    model_version: MODEL_VERSION,
+    save_as_draft: input.saveAsDraft,
+    source: 'moozzle-app',
   };
-
-  const queue = (moozzleId: string) => {
-    const operation: QueuedOperation = {
-      kind: 'animal',
-      opId: Crypto.randomUUID(),
-      userId,
-      queuedAt: now,
-      animal: { ...baseAnimal, moozzle_id: moozzleId, created_at: now },
-      template: { ...templateBase, moozzle_id: moozzleId, created_at: now },
-    };
-    useAppStore.getState().enqueue(operation);
-    bump();
-    return { animal: toAnimal({ ...operation.animal, updated_at: now }, toTemplate({ ...operation.template }), true), queued: true };
-  };
-
-  if (!isOnlineNow()) return queue(generateMoozzleId());
-
-  let moozzleId = generateMoozzleId();
-  let inserted: AnimalRow | null = null;
-  for (let attempt = 0; attempt < 4 && !inserted; attempt += 1) {
-    const { data, error } = await supabase.from('animals').insert({ ...baseAnimal, moozzle_id: moozzleId }).select('*').single();
-    if (!error) {
-      inserted = data as AnimalRow;
-      break;
-    }
-    if (isMoozzleConflict(error)) {
-      moozzleId = generateMoozzleId();
-      continue;
-    }
-    if (isNetworkError(error)) {
-      void useConnectivity.getState().check();
-      return queue(moozzleId);
-    }
-    throw error;
-  }
-  if (!inserted) throw new Error('A unique MOOZZLE ID could not be assigned. Please retry.');
-
-  const { data: template, error: templateError } = await supabase
-    .from('biometric_templates')
-    .insert({ ...templateBase, moozzle_id: moozzleId })
-    .select('*')
-    .single();
-  if (templateError) {
-    console.error('Biometric template insert failed; rolling back animal', templateError);
-    const { error: rollbackError } = await supabase.from('animals').delete().eq('id', animalId);
-    if (rollbackError) console.error('Rollback of animal failed', rollbackError);
-    await afterWrite();
-    throw templateError;
-  }
-  const templateRow = template as BiometricTemplateRow;
-  useBovineStore.setState((state) => ({
-    animalRows: upsertById(state.animalRows, inserted),
-    templateRows: upsertById(state.templateRows, templateRow),
-  }));
-  await afterWrite();
-  return { animal: toAnimal(inserted, toTemplate(templateRow)), queued: false };
 }
 
-export async function addServiceRecord(input: NewServiceInput): Promise<WriteResult> {
-  const userId = requireUser();
+interface RegisterResponse {
+  id: string;
+  moozzle_id: string;
+  approval_status: string;
+  duplicate: boolean;
+}
+
+export async function createAnimal(input: NewAnimalInput): Promise<RegisterResult> {
+  const { userId, role } = requireSession();
   bump();
-  const now = new Date().toISOString();
-  const record = {
+  const payload = toRegisterPayload(input);
+  const queue = (): RegisterResult => {
+    useAppStore.getState().enqueue({ kind: 'animal', opId: Crypto.randomUUID(), userId, role, queuedAt: new Date().toISOString(), payload: { ...payload, source: 'offline-queue' } });
+    bump();
+    return { id: payload.id, moozzleId: payload.moozzle_id, approvalStatus: input.saveAsDraft ? 'Draft' : 'Queued', duplicate: false, queued: true };
+  };
+  if (!isOnlineNow()) return queue();
+  try {
+    const result = await rpc<RegisterResponse>('register_animal', { p: payload });
+    await afterWrite();
+    return { id: result.id, moozzleId: result.moozzle_id, approvalStatus: result.approval_status, duplicate: result.duplicate, queued: false };
+  } catch (error) {
+    if (isNetworkError(error)) {
+      void useConnectivity.getState().check();
+      return queue();
+    }
+    await afterWrite();
+    throw error;
+  }
+}
+
+export async function addServiceRecord(input: NewServiceInput): Promise<{ queued: boolean }> {
+  const { userId, role } = requireSession();
+  bump();
+  const payload: ServicePayload = {
     id: Crypto.randomUUID(),
-    user_id: userId,
     animal_id: input.animalId,
     service_type: input.serviceType,
     title: input.title,
-    date: now.slice(0, 10),
+    date: new Date().toISOString().slice(0, 10),
     technician_name: input.technicianName.trim(),
     details: input.details,
+    corrects_id: input.correctsId ?? null,
+    source: 'moozzle-app',
   };
-  const animalIsQueued = useAppStore.getState().syncQueue.some((op) => op.kind === 'animal' && op.animal.id === input.animalId);
+  const animalIsQueued = useAppStore.getState().syncQueue.some((op) => op.kind === 'animal' && op.payload.id === input.animalId);
   const queue = () => {
-    useAppStore.getState().enqueue({ kind: 'service', opId: Crypto.randomUUID(), userId, queuedAt: now, record: { ...record, created_at: now } });
+    useAppStore.getState().enqueue({ kind: 'service', opId: Crypto.randomUUID(), userId, role, queuedAt: new Date().toISOString(), moozzleId: input.moozzleId, payload: { ...payload, source: 'offline-queue' } });
     bump();
     return { queued: true };
   };
   if (!isOnlineNow() || animalIsQueued) return queue();
-
-  const { data, error } = await supabase.from('service_records').insert(record).select('*').single();
-  if (error) {
+  try {
+    await rpc<string>('add_service_record', { p: payload }, input.moozzleId);
+    await afterWrite();
+    return { queued: false };
+  } catch (error) {
     if (isNetworkError(error)) {
       void useConnectivity.getState().check();
       return queue();
@@ -304,49 +391,110 @@ export async function addServiceRecord(input: NewServiceInput): Promise<WriteRes
     await afterWrite();
     throw error;
   }
-  useBovineStore.setState((state) => ({ serviceRows: upsertById(state.serviceRows, data as ServiceRecordRow) }));
-  await afterWrite();
-  return { queued: false };
 }
 
-export async function retireAnimal(animalId: string, reason: string): Promise<WriteResult> {
-  const userId = requireUser();
+/** Sensitive actions stay online-only so they are authorised against current server state. */
+function requireOnline() {
+  if (!isOnlineNow()) throw new Error('This action needs a connection so it can be authorised. Reconnect and try again.');
+}
+
+export async function retireAnimal(animalId: string, moozzleId: string, reason: string): Promise<'retired' | 'requested'> {
+  requireSession();
+  requireOnline();
   bump();
-  const retiredAt = new Date().toISOString();
-  const animalIsQueued = useAppStore.getState().syncQueue.some((op) => op.kind === 'animal' && op.animal.id === animalId);
-  const queue = () => {
-    useAppStore.getState().enqueue({ kind: 'retire', opId: Crypto.randomUUID(), userId, queuedAt: retiredAt, animalId, reason, retiredAt });
-    bump();
-    return { queued: true };
-  };
-  if (!isOnlineNow() || animalIsQueued) return queue();
-
-  const { data, error } = await supabase
-    .from('animals')
-    .update({ status: 'retired', biometric_status: 'retired', retire_reason: reason, retired_at: retiredAt })
-    .eq('id', animalId)
-    .select('*');
-  if (error) {
-    if (isNetworkError(error)) {
-      void useConnectivity.getState().check();
-      return queue();
-    }
+  try {
+    return await rpc<'retired' | 'requested'>('retire_animal', { p_id: animalId, p_reason: reason }, moozzleId);
+  } finally {
     await afterWrite();
+  }
+}
+
+export async function createRequest(kind: Exclude<RequestKind, 'retire'>, animalId: string, moozzleId: string, payload: Record<string, string>): Promise<void> {
+  requireSession();
+  requireOnline();
+  bump();
+  try {
+    await rpc('create_request', { p_kind: kind, p_animal: animalId, p_payload: payload }, moozzleId);
+  } finally {
+    await afterWrite();
+  }
+}
+
+export async function reviewRequest(requestId: string, decision: string, note: string, moozzleId: string): Promise<void> {
+  requireSession();
+  requireOnline();
+  bump();
+  try {
+    await rpc('review_request', { p_id: requestId, p_decision: decision, p_note: note }, moozzleId);
+  } finally {
+    await afterWrite();
+  }
+}
+
+export async function reviewAnimal(animalId: string, decision: 'Approved' | 'Rejected', note: string, moozzleId: string): Promise<void> {
+  requireSession();
+  requireOnline();
+  bump();
+  try {
+    await rpc('review_animal', { p_id: animalId, p_decision: decision, p_note: note }, moozzleId);
+  } finally {
+    await afterWrite();
+  }
+}
+
+export async function submitDraft(animalId: string, moozzleId: string): Promise<void> {
+  requireSession();
+  requireOnline();
+  bump();
+  try {
+    await rpc('submit_animal', { p_id: animalId }, moozzleId);
+  } finally {
+    await afterWrite();
+  }
+}
+
+export async function recordVerification(policyId: string, outcome: 'Verified' | 'Mismatch' | 'Manual Review' | 'Exception', notes: string, score: number | null, moozzleId: string): Promise<void> {
+  requireSession();
+  requireOnline();
+  bump();
+  try {
+    await rpc('record_verification', { p_policy: policyId, p_outcome: outcome, p_notes: notes, p_score: score }, moozzleId);
+  } finally {
+    await afterWrite();
+  }
+}
+
+export async function markNotificationsRead(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const previous = useBovineStore.getState().notifications;
+  useBovineStore.setState({ notifications: previous.map((item) => (ids.includes(item.id) ? { ...item, read: true } : item)) });
+  const { error } = await supabase.from('notifications').update({ read: true }).in('id', ids);
+  if (error) {
+    useBovineStore.setState({ notifications: previous });
     throw error;
   }
-  const updated = (data ?? [])[0] as AnimalRow | undefined;
-  if (!updated) {
-    await afterWrite();
-    throw new Error('This animal could not be updated. It may belong to another account.');
-  }
-  useBovineStore.setState((state) => ({ animalRows: upsertById(state.animalRows, updated) }));
-  await afterWrite();
-  return { queued: false };
 }
+
+export async function saveNotificationPrefs(prefs: Record<string, boolean>): Promise<void> {
+  const { userId } = requireSession();
+  const { error } = await supabase.from('profiles').update({ notification_prefs: prefs }).eq('id', userId);
+  if (error) throw error;
+  await afterWrite();
+}
+
+export async function updateOwnProfile(fields: { full_name: string; phone: string; village: string }): Promise<void> {
+  const { userId } = requireSession();
+  const { data, error } = await supabase.from('profiles').update(fields).eq('id', userId).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('Your profile could not be updated.');
+  await afterWrite();
+}
+
+// ---------- Offline sync ----------
 
 let syncInFlight: Promise<SyncSummary> | null = null;
 
-/** Uploads this account's queued writes to Supabase, in order. */
+/** Uploads this account's queued writes through the same checked RPCs. Permissions are re-evaluated server-side. */
 export function syncQueuedOperations(): Promise<SyncSummary> {
   if (syncInFlight) return syncInFlight;
   syncInFlight = runSync().finally(() => {
@@ -356,83 +504,60 @@ export function syncQueuedOperations(): Promise<SyncSummary> {
 }
 
 async function runSync(): Promise<SyncSummary> {
-  const userId = requireUser();
+  const { userId } = requireSession();
   bump();
-  const app = useAppStore.getState();
-  const pending = app.syncQueue.filter((op) => op.userId === userId);
+  const pending = useAppStore.getState().syncQueue.filter((op) => op.userId === userId);
   let recordsUploaded = 0;
-  let templatesUploaded = 0;
+  let imagesUploaded = 0;
   let errors = 0;
-  let firstError: unknown = null;
+  let revoked = 0;
+  const conflicts: SyncConflict[] = [];
+  const replacedIds = new Map<string, string>();
+  let networkFailure: unknown = null;
 
-  for (const original of pending) {
-    let op = original;
+  for (const op of pending) {
     try {
       if (op.kind === 'animal') {
-        let done = false;
-        for (let attempt = 0; attempt < 4 && !done; attempt += 1) {
-          const { error } = await supabase.from('animals').upsert(op.animal, { onConflict: 'id', ignoreDuplicates: true });
-          if (!error) {
-            done = true;
-            break;
-          }
-          if (isMoozzleConflict(error)) {
-            const moozzleId = generateMoozzleId();
-            op = { ...op, animal: { ...op.animal, moozzle_id: moozzleId }, template: { ...op.template, moozzle_id: moozzleId } };
-            useAppStore.getState().updateQueued(op.opId, op);
-            continue;
-          }
-          throw error;
+        const result = await rpc<RegisterResponse>('register_animal', { p: op.payload }, op.payload.moozzle_id);
+        if (result.moozzle_id !== op.payload.moozzle_id) {
+          replacedIds.set(op.payload.moozzle_id, result.moozzle_id);
+          conflicts.push({ provisionalId: op.payload.moozzle_id, assignedId: result.moozzle_id, note: 'Provisional ID was already in use; the server issued a new permanent ID.' });
         }
-        if (!done) throw new Error('A unique MOOZZLE ID could not be assigned during sync.');
-        const { error: templateError } = await supabase.from('biometric_templates').upsert(op.template, { onConflict: 'id', ignoreDuplicates: true });
-        if (templateError) throw templateError;
+        if (result.duplicate) conflicts.push({ provisionalId: op.payload.moozzle_id, assignedId: result.moozzle_id, note: 'Possible duplicate identity — sent for manual review instead of being merged.' });
         recordsUploaded += 1;
-        templatesUploaded += 1;
-      } else if (op.kind === 'service') {
-        const { error } = await supabase.from('service_records').upsert(op.record, { onConflict: 'id', ignoreDuplicates: true });
-        if (error) throw error;
-        recordsUploaded += 1;
+        imagesUploaded += 1;
       } else {
-        const { error } = await supabase
-          .from('animals')
-          .update({ status: 'retired', biometric_status: 'retired', retire_reason: op.reason, retired_at: op.retiredAt })
-          .eq('id', op.animalId);
-        if (error) throw error;
+        await rpc<string>('add_service_record', { p: op.payload }, replacedIds.get(op.moozzleId) ?? op.moozzleId);
         recordsUploaded += 1;
       }
       useAppStore.getState().removeQueued(op.opId);
     } catch (error) {
       console.error('Could not sync queued operation', op.kind, error);
+      if (isNetworkError(error)) {
+        networkFailure = error;
+        errors += 1;
+        break;
+      }
+      const permission = isPermissionError(error);
+      if (permission) revoked += 1;
       errors += 1;
-      firstError ??= error;
-      // Without a connection the rest would fail the same way.
-      if (isNetworkError(error)) break;
+      useAppStore.getState().addFailed({ operation: op, error: messageOf(error, 'Upload was rejected.'), failedAt: new Date().toISOString(), revoked: permission });
     }
   }
 
-  const summary: SyncSummary = { recordsUploaded, imagesUploaded: templatesUploaded, errors, completedAt: new Date().toISOString() };
+  const summary: SyncSummary = { recordsUploaded, imagesUploaded, errors, revoked, conflicts, completedAt: new Date().toISOString() };
   useAppStore.getState().setLastSyncSummary(summary);
+  if (!networkFailure) {
+    void logAudit('sync.run', '', `${recordsUploaded} uploaded, ${errors} failed, ${revoked} revoked, ${conflicts.length} conflicts`, errors > 0 ? 'failed' : 'success');
+  }
   await afterWrite();
-  if (firstError && recordsUploaded === 0) throw firstError;
+  if (networkFailure && recordsUploaded === 0) throw networkFailure;
   return summary;
 }
 
 // ---------- Mapping ----------
 
-function toTemplate(row: Omit<BiometricTemplateRow, 'user_id'> & { user_id?: string }): BiometricTemplate {
-  return {
-    template_id: row.id,
-    animal_id: row.animal_id,
-    moozzle_id: row.moozzle_id,
-    quality_score: Number(row.quality_score),
-    model_version: row.model_version,
-    embedding_preview: row.embedding_preview,
-    created_at: row.created_at,
-  };
-}
-
-function toAnimal(row: AnimalRow, template: BiometricTemplate | undefined, pending = false): Animal {
+function toAnimal(row: AnimalRow, owner: OwnerRow | undefined, pending = false): Animal {
   const retired = row.status === 'retired';
   return {
     id: row.id,
@@ -441,29 +566,68 @@ function toAnimal(row: AnimalRow, template: BiometricTemplate | undefined, pendi
     breed: row.breed,
     sex: row.sex === 'male' ? 'Male' : 'Female',
     age_years: row.age_years,
-    owner_name: row.owner_name,
-    owner_phone: row.owner_phone,
+    owner_name: owner?.owner_name ?? '',
+    owner_phone: owner?.owner_phone ?? '',
+    owner_visible: !!owner,
+    owner_user_id: row.owner_user_id,
+    farm_id: row.farm_id,
     farm_name: row.farm_name,
+    organisation_id: row.organisation_id,
     village: row.village,
     district: row.district,
     state: row.state,
     registration_date: row.created_at,
     biometric_status: retired ? 'Retired' : row.biometric_status === 'pending_quality' ? 'Pending Quality' : 'Enrolled',
     current_status: retired ? 'Retired' : 'Active',
+    approval_status: row.approval_status,
+    duplicate_of: row.duplicate_of,
+    review_note: row.review_note,
     retire_reason: row.retire_reason ?? undefined,
     retire_date: row.retired_at ?? undefined,
     captured_images_count: row.captured_images_count,
-    biometric_template_id: template?.template_id ?? '',
+    created_by: row.user_id,
     created_at: row.created_at,
     updated_at: row.updated_at,
     pending_sync: pending,
   };
 }
 
-const SERVICE_DETAIL_NOTES_KEY = 'notes';
+function queuedAnimal(op: Extract<QueuedOperation, { kind: 'animal' }>): Animal {
+  const p = op.payload;
+  return toAnimal(
+    {
+      id: p.id,
+      user_id: op.userId,
+      moozzle_id: p.moozzle_id,
+      species: p.species,
+      breed: p.breed,
+      sex: p.sex,
+      age_years: p.age_years,
+      farm_name: p.farm_name,
+      village: p.village,
+      district: p.district,
+      state: p.state,
+      biometric_status: 'enrolled',
+      status: 'active',
+      retire_reason: null,
+      retired_at: null,
+      captured_images_count: p.captured_images_count,
+      organisation_id: null,
+      farm_id: p.farm_id,
+      owner_user_id: null,
+      approval_status: p.save_as_draft ? 'Draft' : 'Submitted',
+      duplicate_of: null,
+      review_note: null,
+      created_at: op.queuedAt,
+      updated_at: op.queuedAt,
+    },
+    { animal_id: p.id, owner_name: p.owner_name, owner_phone: p.owner_phone },
+    true
+  );
+}
 
-function toServiceRecord(row: Omit<ServiceRecordRow, 'user_id'> & { user_id?: string }, pending = false): LivestockServiceRecord {
-  const { [SERVICE_DETAIL_NOTES_KEY]: notes, ...metadata } = row.details ?? {};
+function toServiceRecord(row: ServiceRecordRow, correctedBy: string | null, pending = false): LivestockServiceRecord {
+  const { notes, ...metadata } = row.details ?? {};
   return {
     id: row.id,
     animal_id: row.animal_id,
@@ -471,15 +635,19 @@ function toServiceRecord(row: Omit<ServiceRecordRow, 'user_id'> & { user_id?: st
     record_type: row.title,
     date: row.date,
     performed_by: row.technician_name,
+    performer_role: row.performer_role,
+    author_id: row.user_id,
     details: notes ?? row.title,
     metadata,
+    corrects_id: row.corrects_id,
+    corrected_by: correctedBy,
+    created_at: row.created_at,
     pending_sync: pending,
   };
 }
 
 export interface BovineData {
   animals: Animal[];
-  templates: BiometricTemplate[];
   records: LivestockServiceRecord[];
   phase: DataPhase;
   error: string | null;
@@ -487,11 +655,11 @@ export interface BovineData {
   pendingCount: number;
 }
 
-/** Supabase rows merged with this account's still-queued offline writes. */
+/** Supabase rows (already filtered by RLS for the active role) merged with this account's queued offline writes. */
 export function useBovineData(): BovineData {
   const userId = useBovineStore((state) => state.userId);
   const animalRows = useBovineStore((state) => state.animalRows);
-  const templateRows = useBovineStore((state) => state.templateRows);
+  const ownerRows = useBovineStore((state) => state.ownerRows);
   const serviceRows = useBovineStore((state) => state.serviceRows);
   const phase = useBovineStore((state) => state.phase);
   const error = useBovineStore((state) => state.error);
@@ -500,32 +668,68 @@ export function useBovineData(): BovineData {
 
   return useMemo(() => {
     const queue = syncQueue.filter((op) => op.userId === userId);
-    const templates = templateRows.map(toTemplate);
-    const remoteAnimalIds = new Set(animalRows.map((row) => row.id));
-    const remoteServiceIds = new Set(serviceRows.map((row) => row.id));
-    for (const op of queue) {
-      if (op.kind === 'animal' && !remoteAnimalIds.has(op.animal.id)) templates.push(toTemplate(op.template));
-    }
-    const templateByAnimal = new Map(templates.map((template) => [template.animal_id, template]));
+    const owners = new Map(ownerRows.map((row) => [row.animal_id, row]));
+    const remoteIds = new Set(animalRows.map((row) => row.id));
+    const queued = queue.flatMap((op) => (op.kind === 'animal' && !remoteIds.has(op.payload.id) ? [queuedAnimal(op)] : []));
+    const animals = [...queued, ...animalRows.map((row) => toAnimal(row, owners.get(row.id)))];
 
-    let animals = animalRows.map((row) => toAnimal(row, templateByAnimal.get(row.id)));
-    const queuedAnimals = queue.flatMap((op) =>
-      op.kind === 'animal' && !remoteAnimalIds.has(op.animal.id)
-        ? [toAnimal({ ...op.animal, updated_at: op.animal.created_at }, templateByAnimal.get(op.animal.id), true)]
+    const correctedBy = new Map<string, string>();
+    for (const row of serviceRows) if (row.corrects_id) correctedBy.set(row.corrects_id, row.id);
+    const remoteServiceIds = new Set(serviceRows.map((row) => row.id));
+    const queuedRecords = queue.flatMap((op) =>
+      op.kind === 'service' && !remoteServiceIds.has(op.payload.id)
+        ? [toServiceRecord({ ...op.payload, user_id: op.userId, performer_role: op.role, signed_at: op.queuedAt, created_at: op.queuedAt }, null, true)]
         : []
     );
-    const retirements = new Map(queue.flatMap((op) => (op.kind === 'retire' ? [[op.animalId, op] as const] : [])));
-    animals = [...queuedAnimals, ...animals].map((animal) => {
-      const retire = retirements.get(animal.id);
-      return retire
-        ? { ...animal, current_status: 'Retired', biometric_status: 'Retired', retire_reason: retire.reason, retire_date: retire.retiredAt, pending_sync: true }
-        : animal;
-    });
-    animals.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    const records = [...queuedRecords, ...serviceRows.map((row) => toServiceRecord(row, correctedBy.get(row.id) ?? null))];
+    return { animals, records, phase, error, refreshing, pendingCount: queue.length };
+  }, [animalRows, error, ownerRows, phase, refreshing, serviceRows, syncQueue, userId]);
+}
 
-    const queuedRecords = queue.flatMap((op) => (op.kind === 'service' && !remoteServiceIds.has(op.record.id) ? [toServiceRecord(op.record, true)] : []));
-    const records = [...queuedRecords, ...serviceRows.map((row) => toServiceRecord(row))];
+export interface SessionInfo {
+  userId: string | null;
+  role: Role | null;
+  roles: Role[];
+  permissions: PermissionMap;
+  privileged: boolean;
+  privilegedUntil: string | null;
+  scope: UserRoleRow | null;
+  organisation: OrganisationRow | null;
+  scopeLabel: string;
+  name: string;
+  experience: (typeof ROLE_EXPERIENCE)[Role] | null;
+}
 
-    return { animals, templates, records, phase, error, refreshing, pendingCount: queue.length };
-  }, [animalRows, error, phase, refreshing, serviceRows, syncQueue, templateRows, userId]);
+/** The active role, its permissions (from the backend matrix) and data scope. */
+export function useSession(): SessionInfo {
+  const userId = useBovineStore((state) => state.userId);
+  const profile = useBovineStore((state) => state.profile);
+  const myRoles = useBovineStore((state) => state.myRoles);
+  const permissions = useBovineStore((state) => state.permissions);
+  const organisations = useBovineStore((state) => state.organisations);
+  const farms = useBovineStore((state) => state.farms);
+  return useMemo(() => {
+    const role = profile?.active_role && myRoles.some((item) => item.role === profile.active_role) ? profile.active_role : null;
+    const scope = myRoles.find((item) => item.role === role) ?? null;
+    const organisation = organisations.find((item) => item.id === scope?.organisation_id) ?? null;
+    const farmNames = farms.filter((farm) => scope?.farm_ids.includes(farm.id)).map((farm) => farm.name);
+    let scopeLabel = organisation?.name ?? 'Personal account';
+    if (role === 'Farmer') scopeLabel = profile?.village ? `My farm · ${profile.village}` : 'My animals';
+    else if (farmNames.length) scopeLabel = farmNames.length === 1 ? farmNames[0] : `${farmNames[0]} +${farmNames.length - 1}`;
+    else if (scope?.districts.length) scopeLabel = `${scope.districts.join(', ')} district${scope.districts.length > 1 ? 's' : ''}`;
+    const privilegedUntil = role === 'Super Administrator' ? profile?.privileged_until ?? null : null;
+    return {
+      userId,
+      role,
+      roles: myRoles.map((item) => item.role),
+      permissions: role ? permissions : NO_PERMISSIONS,
+      privileged: !!privilegedUntil && new Date(privilegedUntil).getTime() > Date.now(),
+      privilegedUntil,
+      scope,
+      organisation,
+      scopeLabel,
+      name: profile?.full_name?.trim() || profile?.email || 'MOOZZLE user',
+      experience: role ? ROLE_EXPERIENCE[role] : null,
+    };
+  }, [farms, myRoles, organisations, permissions, profile, userId]);
 }

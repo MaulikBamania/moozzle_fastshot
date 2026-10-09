@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
   AppScreen,
-  AnimalPhoto,
   Card,
   colors,
   OptionChip,
@@ -17,8 +16,9 @@ import {
   getAnimalImageSource,
   DataGate,
 } from '@/components/moozzle-ui';
-import { createAnimal, messageOf, useBovineStore } from '@/store/useBovineStore';
-import type { Animal, AnimalType, Sex } from '@/store/types';
+import { RequireAccess } from '@/components/app-chrome';
+import { createAnimal, messageOf, useBovineStore, useSession, type RegisterResult } from '@/store/useBovineStore';
+import type { AnimalType, Sex } from '@/store/types';
 import { Fonts } from '@/constants/Typography';
 
 const PIPELINE_STEPS = [
@@ -34,11 +34,27 @@ const cattleBreeds = ['Gir', 'Sahiwal', 'Red Sindhi', 'Tharparkar', 'Rathi', 'Ka
 const buffaloBreeds = ['Murrah', 'Mehsana', 'Jaffarabadi', 'Surti', 'Nili-Ravi', 'Bhadawari', 'Other'];
 
 export default function RegisterScreen() {
-  return <DataGate><RegisterContent /></DataGate>;
+  return <DataGate><RequireAccess destination="register"><RegisterContent /></RequireAccess></DataGate>;
 }
 
 function RegisterContent() {
-  const profileVillage = useBovineStore((state) => state.profile?.village ?? '');
+  const session = useSession();
+  const profile = useBovineStore((state) => state.profile);
+  const allFarms = useBovineStore((state) => state.farms);
+  const profileVillage = profile?.village ?? '';
+  const isFarmer = session.role === 'Farmer';
+  const level = session.permissions.register_animal;
+  const needsApproval = level !== 'Full' && level !== 'Scoped';
+  // Farms this role may register into: assigned farms, or the organisation's farms for org admins.
+  const farmOptions = useMemo(() => {
+    if (isFarmer) return [];
+    if (session.role === 'Organisation Administrator') return allFarms.filter((farm) => farm.organisation_id === session.scope?.organisation_id);
+    if (session.role === 'Government Officer' || session.role === 'Livestock Inspector') return allFarms.filter((farm) => session.scope?.districts.includes(farm.district));
+    if (session.role === 'Super Administrator') return allFarms;
+    return allFarms.filter((farm) => session.scope?.farm_ids.includes(farm.id));
+  }, [allFarms, isFarmer, session.role, session.scope]);
+  const [selectedFarmId, setSelectedFarmId] = useState<string | null>(farmOptions.length === 1 ? farmOptions[0].id : null);
+  const [saveAsDraft, setSaveAsDraft] = useState(false);
   const [step, setStep] = useState(1);
   const [animalType, setAnimalType] = useState<AnimalType>('Cattle');
   const [breed, setBreed] = useState('Gir');
@@ -47,7 +63,7 @@ function RegisterContent() {
   const [stateName, setStateName] = useState('Gujarat');
   const [district, setDistrict] = useState('Ahmedabad');
   const [village, setVillage] = useState(profileVillage);
-  const [owner, setOwner] = useState('');
+  const [owner, setOwner] = useState(isFarmer ? profile?.full_name ?? '' : '');
   const [ownerPhone, setOwnerPhone] = useState('');
   const [farmId, setFarmId] = useState('');
   const [detailsError, setDetailsError] = useState('');
@@ -57,7 +73,7 @@ function RegisterContent() {
   const [captures, setCaptures] = useState<number[]>([]);
   const [pipelineStep, setPipelineStep] = useState(0);
   const [processingComplete, setProcessingComplete] = useState(false);
-  const [registeredAnimal, setRegisteredAnimal] = useState<Animal | null>(null);
+  const [registered, setRegistered] = useState<RegisterResult | null>(null);
   const [showCancel, setShowCancel] = useState(false);
 
   const breeds = animalType === 'Cattle' ? cattleBreeds : buffaloBreeds;
@@ -85,14 +101,28 @@ function RegisterContent() {
   const handleCapture = useCallback(() => {
     setCaptures((current) => current.length >= 5 ? current : [...current, current.length + 1]);
   }, []);
+  const chooseFarm = useCallback((id: string) => {
+    setSelectedFarmId(id);
+    const farm = allFarms.find((item) => item.id === id);
+    if (farm) {
+      setVillage(farm.village);
+      setDistrict(farm.district);
+      setStateName(farm.state);
+      setFarmId(farm.name);
+    }
+  }, [allFarms]);
   const goToCapture = useCallback(() => {
     if (!owner.trim() || !village.trim() || !district.trim() || !stateName.trim()) {
       setDetailsError('Owner name, village, district and state are required.');
       return;
     }
+    if (!isFarmer && farmOptions.length > 0 && !selectedFarmId) {
+      setDetailsError('Choose the assigned farm this animal belongs to.');
+      return;
+    }
     setDetailsError('');
     setStep(2);
-  }, [district, owner, stateName, village]);
+  }, [district, farmOptions.length, isFarmer, owner, selectedFarmId, stateName, village]);
   const goToProcessing = useCallback(() => {
     if (captures.length === 5) {
       setPipelineStep(0);
@@ -106,22 +136,24 @@ function RegisterContent() {
     setSaveError('');
     try {
       const qualityScore = captureQuality.slice(0, captures.length).reduce((sum, value) => sum + value, 0) / Math.max(captures.length, 1) / 100;
-      const { animal, queued } = await createAnimal({
+      const result = await createAnimal({
         animalType,
         breed,
         sex,
         ageYears: age,
         ownerName: owner,
         ownerPhone,
+        farmId: selectedFarmId,
         farmName: farmId,
         village,
         district,
         state: stateName,
         capturedImages: captures.length,
         qualityScore: Number(qualityScore.toFixed(3)),
+        saveAsDraft,
       });
-      setRegisteredAnimal(animal);
-      setWasQueued(queued);
+      setRegistered(result);
+      setWasQueued(result.queued);
       setStep(4);
     } catch (caught) {
       console.error('Could not complete animal registration', caught);
@@ -129,13 +161,13 @@ function RegisterContent() {
     } finally {
       setSaving(false);
     }
-  }, [age, animalType, breed, captureQuality, captures.length, district, farmId, owner, ownerPhone, processingComplete, saving, sex, stateName, village]);
+  }, [age, animalType, breed, captureQuality, captures.length, district, farmId, owner, ownerPhone, processingComplete, saveAsDraft, saving, selectedFarmId, sex, stateName, village]);
   const resetWizard = useCallback(() => {
     setStep(1);
     setCaptures([]);
     setPipelineStep(0);
     setProcessingComplete(false);
-    setRegisteredAnimal(null);
+    setRegistered(null);
     setWasQueued(false);
     setSaveError('');
   }, []);
@@ -154,10 +186,10 @@ function RegisterContent() {
         </View>
         <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={styles.flex} contentContainerStyle={styles.content}>
           <WizardStepper step={step} />
-          {step === 1 && <DetailsStep animalType={animalType} breed={breed} sex={sex} age={age} stateName={stateName} district={district} village={village} owner={owner} ownerPhone={ownerPhone} farmId={farmId} breeds={breeds} error={detailsError} onType={handleTypeChange} onBreed={setBreed} onSex={setSex} onAge={setAge} onState={setStateName} onDistrict={setDistrict} onVillage={setVillage} onOwner={setOwner} onOwnerPhone={setOwnerPhone} onFarmId={setFarmId} onNext={goToCapture} />}
+          {step === 1 && <DetailsStep animalType={animalType} breed={breed} sex={sex} age={age} stateName={stateName} district={district} village={village} owner={owner} ownerPhone={ownerPhone} farmId={farmId} breeds={breeds} farmOptions={farmOptions.map((farm) => ({ id: farm.id, label: `${farm.name} · ${farm.village}` }))} selectedFarmId={selectedFarmId} onFarm={chooseFarm} isFarmer={isFarmer} error={detailsError} onType={handleTypeChange} onBreed={setBreed} onSex={setSex} onAge={setAge} onState={setStateName} onDistrict={setDistrict} onVillage={setVillage} onOwner={setOwner} onOwnerPhone={setOwnerPhone} onFarmId={setFarmId} onNext={goToCapture} />}
           {step === 2 && <CaptureStep captures={captures} captureQuality={captureQuality} animalType={animalType} onCapture={handleCapture} onBack={() => setStep(1)} onNext={goToProcessing} />}
-          {step === 3 && <ProcessingStep activeStep={pipelineStep} complete={processingComplete} saving={saving} saveError={saveError} onBack={() => setStep(2)} onComplete={() => void handleComplete()} />}
-          {step === 4 && registeredAnimal && <SuccessStep animal={registeredAnimal} queued={wasQueued} onProfile={() => router.push(`/animal/${registeredAnimal.moozzle_id}`)} onIdentify={() => router.replace('/(tabs)/identify' as never)} onRegisterAnother={resetWizard} />}
+          {step === 3 && <ProcessingStep activeStep={pipelineStep} complete={processingComplete} saving={saving} saveError={saveError} needsApproval={needsApproval} saveAsDraft={saveAsDraft} onDraft={setSaveAsDraft} onBack={() => setStep(2)} onComplete={() => void handleComplete()} />}
+          {step === 4 && registered && <SuccessStep result={registered} summary={{ animalType, breed, sex, age, village, stateName, captures: captures.length }} queued={wasQueued} isFarmer={isFarmer} onProfile={() => router.push(`/animal/${registered.moozzleId}`)} onIdentify={() => router.replace('/(tabs)/identify' as never)} onRegisterAnother={resetWizard} />}
         </ScrollView>
       </View>
       <Modal visible={showCancel} transparent animationType="fade" onRequestClose={() => setShowCancel(false)}>
@@ -206,6 +238,10 @@ interface DetailsProps {
   owner: string;
   ownerPhone: string;
   farmId: string;
+  farmOptions: { id: string; label: string }[];
+  selectedFarmId: string | null;
+  onFarm: (id: string) => void;
+  isFarmer: boolean;
   error: string;
   breeds: string[];
   onType: (value: AnimalType) => void;
@@ -238,7 +274,14 @@ function DetailsStep(props: DetailsProps) {
       </Card>
       <Card style={styles.formCard}>
         <Text style={styles.formSectionTitle}>Location & ownership</Text>
-        <View style={styles.fieldGrid}><TextField label="State" value={props.stateName} onChangeText={props.onState} /><TextField label="District" value={props.district} onChangeText={props.onDistrict} /><TextField label="Village" value={props.village} onChangeText={props.onVillage} /><TextField label="Owner name" value={props.owner} onChangeText={props.onOwner} placeholder="Farmer's full name" /><TextField label="Owner phone (optional)" value={props.ownerPhone} onChangeText={props.onOwnerPhone} keyboardType="phone-pad" placeholder="+91 98765 43210" /><TextField label="Farm name / ID (optional)" value={props.farmId} onChangeText={props.onFarmId} placeholder="FARM-GJ-044" /></View>
+        {props.farmOptions.length > 0 ? (
+          <>
+            <Text style={styles.pageDescription}>Assigned farm (only farms in your authorised scope)</Text>
+            <View style={styles.farmChips}>{props.farmOptions.map((farm) => <OptionChip key={farm.id} label={farm.label} selected={props.selectedFarmId === farm.id} onPress={() => props.onFarm(farm.id)} />)}</View>
+          </>
+        ) : null}
+        {props.isFarmer ? <Text style={styles.pageDescription}>This animal will be linked to your account and sent for verification.</Text> : null}
+        <View style={styles.fieldGrid}><TextField label="State" value={props.stateName} onChangeText={props.onState} /><TextField label="District" value={props.district} onChangeText={props.onDistrict} /><TextField label="Village" value={props.village} onChangeText={props.onVillage} /><TextField label="Owner name" value={props.owner} onChangeText={props.onOwner} placeholder="Farmer's full name" /><TextField label="Owner phone (optional)" value={props.ownerPhone} onChangeText={props.onOwnerPhone} keyboardType="phone-pad" placeholder="+91 98765 43210" />{props.farmOptions.length === 0 ? <TextField label="Farm name / ID (optional)" value={props.farmId} onChangeText={props.onFarmId} placeholder="FARM-GJ-044" /> : null}</View>
       </Card>
       {props.error ? <View style={styles.inlineError}><Ionicons name="alert-circle" size={17} color={colors.danger} /><Text selectable style={styles.inlineErrorText}>{props.error}</Text></View> : null}
       <PrimaryButton label="Next: Capture Muzzle Pattern" icon="arrow-forward" onPress={props.onNext} />
@@ -265,13 +308,21 @@ function CaptureStep({ captures, captureQuality, animalType, onCapture, onBack, 
   );
 }
 
-function ProcessingStep({ activeStep, complete, saving, saveError, onBack, onComplete }: { activeStep: number; complete: boolean; saving: boolean; saveError: string; onBack: () => void; onComplete: () => void }) {
+function ProcessingStep({ activeStep, complete, saving, saveError, needsApproval, saveAsDraft, onDraft, onBack, onComplete }: { activeStep: number; complete: boolean; saving: boolean; saveError: string; needsApproval: boolean; saveAsDraft: boolean; onDraft: (value: boolean) => void; onBack: () => void; onComplete: () => void }) {
   return (
     <View style={styles.stepContent}>
       <View><Text style={styles.eyebrow}>STEP 3 OF 4</Text><Text style={styles.pageTitle}>Biometric Processing</Text><Text style={styles.pageDescription}>The demo pipeline is checking quality and searching for a duplicate identity.</Text></View>
       <Card style={styles.processingCard}><PipelineList steps={PIPELINE_STEPS} activeStep={activeStep} /></Card>
-      {complete ? <View style={styles.outcomeCard}><Ionicons name="checkmark-circle" size={25} color={colors.accent} /><View style={styles.outcomeCopy}><Text style={styles.outcomeTitle}>No matching animal found</Text><Text style={styles.outcomeText}>Proceeding to assign a unique identity.</Text></View></View> : <View style={styles.processingNote}><ActivityPulse /><Text style={styles.processingNoteText}>Extracting muzzle ridge embeddings locally…</Text></View>}
-      <View style={styles.buttonRow}><PrimaryButton label="Back" onPress={onBack} variant="outline" style={styles.halfButton} /><PrimaryButton label={saving ? 'Saving…' : saveError ? 'Retry Save' : 'Complete Registration'} icon="checkmark" onPress={onComplete} disabled={!complete || saving} style={styles.halfButton} /></View>
+      {complete ? <View style={styles.outcomeCard}><Ionicons name="checkmark-circle" size={25} color={colors.accent} /><View style={styles.outcomeCopy}><Text style={styles.outcomeTitle}>Image quality checks passed</Text><Text style={styles.outcomeText}>The server runs the duplicate check when you save; suspected duplicates go to manual review.</Text></View></View> : <View style={styles.processingNote}><ActivityPulse /><Text style={styles.processingNoteText}>Extracting muzzle ridge embeddings locally…</Text></View>}
+      <Card style={styles.formCard}>
+        <Text style={styles.formSectionTitle}>Save as</Text>
+        <View style={styles.optionRow}>
+          <OptionChip label={needsApproval ? 'Submit for approval' : 'Enrol now'} selected={!saveAsDraft} onPress={() => onDraft(false)} />
+          <OptionChip label="Save draft" selected={saveAsDraft} onPress={() => onDraft(true)} tone="blue" />
+        </View>
+        <Text style={styles.pageDescription}>{saveAsDraft ? 'Drafts stay private to you until submitted.' : needsApproval ? 'Your role’s registrations are reviewed by an authorised approver before they are verified.' : 'Your role can enrol directly within your authorised scope.'}</Text>
+      </Card>
+      <View style={styles.buttonRow}><PrimaryButton label="Back" onPress={onBack} variant="outline" style={styles.halfButton} /><PrimaryButton label={saving ? 'Saving…' : saveError ? 'Retry Save' : saveAsDraft ? 'Save Draft' : 'Complete Registration'} icon="checkmark" onPress={onComplete} disabled={!complete || saving} style={styles.halfButton} /></View>
       {saveError ? <View style={styles.inlineError}><Ionicons name="alert-circle" size={17} color={colors.danger} /><Text selectable style={styles.inlineErrorText}>{saveError}</Text></View> : null}
     </View>
   );
@@ -279,12 +330,15 @@ function ProcessingStep({ activeStep, complete, saving, saveError, onBack, onCom
 
 function ActivityPulse() { return <View style={styles.activityPulse}><View style={styles.pulseDot} /><View style={styles.pulseDot} /><View style={styles.pulseDot} /></View>; }
 
-function SuccessStep({ animal, queued, onProfile, onIdentify, onRegisterAnother }: { animal: Animal; queued: boolean; onProfile: () => void; onIdentify: () => void; onRegisterAnother: () => void }) {
+interface SuccessSummary { animalType: AnimalType; breed: string; sex: Sex; age: number; village: string; stateName: string; captures: number }
+
+function SuccessStep({ result, summary, queued, isFarmer, onProfile, onIdentify, onRegisterAnother }: { result: RegisterResult; summary: SuccessSummary; queued: boolean; isFarmer: boolean; onProfile: () => void; onIdentify: () => void; onRegisterAnother: () => void }) {
+  const statusLabel = queued ? 'Queued for Sync' : result.approvalStatus === 'Approved' ? 'Successfully Enrolled' : result.approvalStatus;
   return (
     <View style={styles.stepContent}>
-      <View><Text style={styles.eyebrow}>STEP 4 OF 4</Text><Text style={styles.pageTitle}>Identity Assigned</Text><Text style={styles.pageDescription}>{queued ? 'Saved to the offline queue. Open Sync Manager when you are back online to upload it.' : 'The animal and its biometric template are saved to your MOOZZLE cloud archive.'}</Text></View>
-      <View style={styles.successCard}><View style={styles.successIcon}><Ionicons name="checkmark" size={32} color={colors.surface} /></View><Text style={styles.successKicker}>MOOZZLE ID</Text><Text selectable style={styles.successId}>{animal.moozzle_id.replace(/(\d{4})(\d{4})(\d{4})/, '$1 $2 $3')}</Text><Pill label={queued ? 'Queued for Sync' : 'Successfully Enrolled'} tone={queued ? 'amber' : 'green'} /><Text style={styles.successDisclaimer}>Prototype biometric confidence is unvalidated and for demo workflow only.</Text></View>
-      <Card style={styles.summaryCard}><View style={styles.summaryImage}><AnimalPhoto animal={animal} size={92} /></View><View style={styles.summaryGrid}><SummaryItem label="Species" value={animal.animal_type} /><SummaryItem label="Breed" value={animal.breed} /><SummaryItem label="Sex" value={animal.sex} /><SummaryItem label="Age" value={`${animal.age_years} yrs`} /><SummaryItem label="Location" value={`${animal.village}, ${animal.state}`} /><SummaryItem label="Frames" value={`${animal.captured_images_count} good`} /></View></Card>
+      <View><Text style={styles.eyebrow}>STEP 4 OF 4</Text><Text style={styles.pageTitle}>Identity Assigned</Text><Text style={styles.pageDescription}>{queued ? 'Saved on this device. It will be re-checked against your permissions and uploaded at the next sync; the ID shown is provisional until then.' : isFarmer ? 'Your record has been saved and sent for verification.' : result.approvalStatus === 'Approved' ? 'The animal and its biometric template are saved.' : `Saved with status “${result.approvalStatus}”.`}</Text></View>
+      <View style={styles.successCard}><View style={styles.successIcon}><Ionicons name="checkmark" size={32} color={colors.surface} /></View><Text style={styles.successKicker}>MOOZZLE ID</Text><Text selectable style={styles.successId}>{result.moozzleId.replace(/(\d{4})(\d{4})(\d{4})/, '$1 $2 $3')}</Text><Pill label={statusLabel} tone={queued || result.approvalStatus !== 'Approved' ? 'amber' : 'green'} />{result.duplicate ? <Text style={styles.successDisclaimer}>Possible duplicate identity detected — sent for manual review instead of being merged.</Text> : null}<Text style={styles.successDisclaimer}>Prototype biometric confidence is unvalidated and for demo workflow only.</Text></View>
+      <Card style={styles.summaryCard}><View style={styles.summaryImage}><Image source={getAnimalImageSource(summary.animalType)} contentFit="cover" style={styles.summaryPhoto} /></View><View style={styles.summaryGrid}><SummaryItem label="Species" value={summary.animalType} /><SummaryItem label="Breed" value={summary.breed} /><SummaryItem label="Sex" value={summary.sex} /><SummaryItem label="Age" value={`${summary.age} yrs`} /><SummaryItem label="Location" value={`${summary.village}, ${summary.stateName}`} /><SummaryItem label="Frames" value={`${summary.captures} good`} /></View></Card>
       <PrimaryButton label="VIEW ANIMAL PROFILE" icon="document-text-outline" onPress={onProfile} />
       <View style={styles.buttonRow}><PrimaryButton label="IDENTIFY AGAIN" onPress={onIdentify} variant="outline" style={styles.halfButton} /><PrimaryButton label="REGISTER ANOTHER" onPress={onRegisterAnother} variant="soft" style={styles.halfButton} /></View>
     </View>
@@ -349,12 +403,14 @@ const styles = StyleSheet.create({
   activityPulse: { flexDirection: 'row', gap: 4 },
   pulseDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.blue },
   successCard: { borderRadius: 20, backgroundColor: colors.primary, padding: 24, alignItems: 'center', gap: 9 },
-  successIcon: { width: 58, height: 58, borderRadius: 29, backgroundColor: '#4CAF67', alignItems: 'center', justifyContent: 'center' },
+  successIcon: { width: 58, height: 58, borderRadius: 29, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   successKicker: { color: '#B8E9CC', fontFamily: Fonts.bold, fontSize: 12, letterSpacing: 2, marginTop: 5 },
   successId: { color: colors.surface, fontFamily: Fonts.bold, fontSize: 28, fontVariant: ['tabular-nums'], letterSpacing: 1.1 },
   successDisclaimer: { color: '#D7F0DF', fontFamily: Fonts.regular, fontSize: 11, lineHeight: 16, textAlign: 'center', marginTop: 6 },
   summaryCard: { flexDirection: 'row', gap: 14, alignItems: 'flex-start' },
   summaryImage: { paddingTop: 1 },
+  summaryPhoto: { width: 92, height: 92, borderRadius: 12 },
+  farmChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   summaryGrid: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', rowGap: 12 },
   summaryItem: { width: '50%', gap: 3 },
   summaryLabel: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 11 },

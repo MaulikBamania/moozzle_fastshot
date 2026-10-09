@@ -8,7 +8,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { FontMap } from "@/constants/Typography";
 import { supabase } from "@/lib/supabase";
-import { setActiveUser } from "@/store/useBovineStore";
+import { logAudit, setActiveUser } from "@/store/useBovineStore";
 import { useConnectivityMonitor } from "@/store/useConnectivity";
 
 SplashScreen.preventAutoHideAsync();
@@ -16,7 +16,7 @@ SplashScreen.preventAutoHideAsync();
 const AUTH_ROUTES = {
   login: "/(auth)/login",
   afterLogin: "/(tabs)",
-  protected: ["(tabs)", "register", "animal", "sync", "performance", "api-docs", "about", "profile"],
+  protected: ["(tabs)", "register", "animal", "sync", "performance", "api-docs", "about", "profile", "notifications", "audit", "approvals", "requests", "reports", "users", "permissions", "platform-settings", "security", "api-clients", "research", "services", "verify", "permission-denied"],
   guest: ["(auth)"],
 };
 
@@ -31,6 +31,11 @@ function SessionBridge({ children }: { children: React.ReactNode }) {
   }, [isInitializing, userId]);
 
   return <>{children}</>;
+}
+
+// Called by the auth SDK after a successful sign-in; the server derives the user and role.
+function handleSignIn() {
+  setTimeout(() => void logAudit("auth.login", "", "Signed in", "success"), 1500);
 }
 
 export default function RootLayout() {
@@ -49,7 +54,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <AuthProvider supabaseClient={supabase} routes={AUTH_ROUTES}>
+        <AuthProvider supabaseClient={supabase} routes={AUTH_ROUTES} onSignIn={handleSignIn}>
           <SessionBridge>
             <StatusBar style="dark" />
             <Stack screenOptions={{ headerShown: false }}>
@@ -64,6 +69,20 @@ export default function RootLayout() {
               <Stack.Screen name="performance" options={{ presentation: 'card' }} />
               <Stack.Screen name="api-docs" options={{ presentation: 'card' }} />
               <Stack.Screen name="about" options={{ presentation: 'card' }} />
+              <Stack.Screen name="notifications" />
+              <Stack.Screen name="audit" />
+              <Stack.Screen name="approvals" />
+              <Stack.Screen name="requests" />
+              <Stack.Screen name="reports" />
+              <Stack.Screen name="users" />
+              <Stack.Screen name="permissions" />
+              <Stack.Screen name="platform-settings" />
+              <Stack.Screen name="security" />
+              <Stack.Screen name="api-clients" />
+              <Stack.Screen name="research" />
+              <Stack.Screen name="services" />
+              <Stack.Screen name="verify" />
+              <Stack.Screen name="permission-denied" />
             </Stack>
           </SessionBridge>
         </AuthProvider>

@@ -53,15 +53,15 @@ export default function PerformanceScreen() {
 
 function PerformanceContent() {
   const trials = useAppStore((state) => state.validationTrials);
-  const { animals, templates } = useBovineData();
+  const { animals } = useBovineData();
   const archiveStats = useMemo(() => [
     ['Registered bovines', String(animals.length)],
     ['Cattle', String(animals.filter((item) => item.animal_type === 'Cattle').length)],
     ['Buffalo', String(animals.filter((item) => item.animal_type === 'Buffalo').length)],
-    ['Biometric templates', String(templates.length)],
+    ['Enrolled templates', String(animals.filter((item) => item.biometric_status === 'Enrolled').length)],
     ['Active', String(animals.filter((item) => item.current_status === 'Active').length)],
     ['Retired', String(animals.filter((item) => item.current_status === 'Retired').length)],
-  ] as const, [animals, templates]);
+  ] as const, [animals]);
   const addValidationTrial = useAppStore((state) => state.addValidationTrial);
   const [animalType, setAnimalType] = useState<AnimalType>('Cattle');
   const [draft, setDraft] = useState<ValidationDraft>(createInitialDraft);

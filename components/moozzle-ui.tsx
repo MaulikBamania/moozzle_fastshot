@@ -1,7 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
-import { useCallback } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -16,16 +14,17 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { retryLoading, useAppStore } from '@/store/useAppStore';
+import { retryLoading } from '@/store/useAppStore';
 import { continueOffline, loadBovineData, useBovineStore } from '@/store/useBovineStore';
 import { useStorageStatus } from '@/store/storage';
-import type { Animal, Language } from '@/store/types';
+import type { Animal, ApprovalStatus, Language } from '@/store/types';
 import { Fonts } from '@/constants/Typography';
 
 export const colors = {
-  primary: '#1B5E20',
-  accent: '#2E7D32',
-  primaryLight: '#E8F5E9',
+  primary: '#059669',
+  accent: '#047857',
+  primaryDark: '#047857',
+  primaryLight: '#ECFDF5',
   surface: '#FFFFFF',
   background: '#F8FAFC',
   text: '#0F172A',
@@ -58,6 +57,20 @@ const translations: Record<Language, Record<string, string>> = {
     retry: 'Retry',
     online: 'ONLINE • Cloud Sync',
     fieldTip: 'Field Tip',
+    workspace: 'Workspace',
+    more: 'More',
+    myAnimals: 'My Animals',
+    notifications: 'Notifications',
+    signOut: 'Sign Out',
+    switchRole: 'Switch workspace',
+    quickActions: 'Quick actions',
+    overview: 'Overview',
+    alerts: 'Alerts',
+    seeAll: 'See all',
+    recentActivity: 'Recent activity',
+    identified: 'Animal identified successfully.',
+    saved: 'Your record has been saved.',
+    noAccess: 'You do not have permission to access this information.',
   },
   HI: {
     home: 'होम',
@@ -73,6 +86,20 @@ const translations: Record<Language, Record<string, string>> = {
     retry: 'फिर कोशिश करें',
     online: 'ऑनलाइन · क्लाउड सिंक',
     fieldTip: 'मैदानी सुझाव',
+    workspace: 'कार्यक्षेत्र',
+    more: 'और',
+    myAnimals: 'मेरे पशु',
+    notifications: 'सूचनाएं',
+    signOut: 'साइन आउट',
+    switchRole: 'कार्यक्षेत्र बदलें',
+    quickActions: 'त्वरित कार्य',
+    overview: 'सारांश',
+    alerts: 'चेतावनियाँ',
+    seeAll: 'सभी देखें',
+    recentActivity: 'हाल की गतिविधि',
+    identified: 'पशु की पहचान सफल रही।',
+    saved: 'आपका रिकॉर्ड सहेज लिया गया है।',
+    noAccess: 'आपको यह जानकारी देखने की अनुमति नहीं है।',
   },
   GU: {
     home: 'હોમ',
@@ -88,10 +115,32 @@ const translations: Record<Language, Record<string, string>> = {
     retry: 'ફરી પ્રયાસ કરો',
     online: 'ઓનલાઇન · ક્લાઉડ સિંક',
     fieldTip: 'ફિલ્ડ સૂચન',
+    workspace: 'કાર્યક્ષેત્ર',
+    more: 'વધુ',
+    myAnimals: 'મારા પશુ',
+    notifications: 'સૂચનાઓ',
+    signOut: 'સાઇન આઉટ',
+    switchRole: 'કાર્યક્ષેત્ર બદલો',
+    quickActions: 'ઝડપી કાર્યો',
+    overview: 'સારાંશ',
+    alerts: 'ચેતવણીઓ',
+    seeAll: 'બધું જુઓ',
+    recentActivity: 'તાજેતરની પ્રવૃત્તિ',
+    identified: 'પશુની ઓળખ સફળ થઈ.',
+    saved: 'તમારો રેકોર્ડ સાચવવામાં આવ્યો છે.',
+    noAccess: 'તમને આ માહિતી જોવાની પરવાનગી નથી.',
   },
 };
 
 export const tr = (language: Language, key: string): string => translations[language][key] ?? translations.EN[key] ?? key;
+
+export function approvalTone(status: ApprovalStatus): 'green' | 'amber' | 'red' | 'slate' | 'blue' {
+  if (status === 'Approved' || status === 'Corrected') return 'green';
+  if (status === 'Rejected') return 'red';
+  if (status === 'Retired') return 'slate';
+  if (status === 'Draft') return 'blue';
+  return 'amber';
+}
 
 export function formatMoozzleId(id: string): string {
   return id.replace(/(\d{4})(\d{4})(\d{4})/, '$1 $2 $3');
@@ -129,23 +178,29 @@ export function StorageGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/** Waits for device storage plus this account's bovine records from Supabase. */
+/** Waits for device storage plus this account's records (already scoped by the active role on the server). */
 export function DataGate({ children }: { children: React.ReactNode }) {
   const storagePhase = useStorageStatus((state) => state.phase);
   const phase = useBovineStore((state) => state.phase);
   const error = useBovineStore((state) => state.error);
+  const switching = useBovineStore((state) => state.switchingRole);
+  const hasRole = useBovineStore((state) => !!state.profile && state.myRoles.some((item) => item.role === state.profile?.active_role));
   if (storagePhase === 'loading') return <LoadingState label="Loading device settings…" />;
   if (storagePhase === 'error') return <ErrorState message="Device settings and the offline queue could not be loaded." onRetry={retryLoading} />;
-  if (phase === 'idle' || phase === 'loading') return <LoadingState label="Loading your bovine records…" />;
+  if (switching) return <LoadingState label="Switching workspace…" />;
+  if (phase === 'idle' || phase === 'loading') return <LoadingState label="Loading your authorised records…" />;
   if (phase === 'error') {
     return (
       <ErrorState
-        message={`${error ?? 'Your bovine records could not be loaded.'} Check your connection and retry, or continue offline with queued work.`}
+        message={`${error ?? 'Your records could not be loaded.'} Check your connection and retry, or continue offline with queued work.`}
         onRetry={() => void loadBovineData()}
         secondaryLabel="Continue Offline"
         onSecondary={continueOffline}
       />
     );
+  }
+  if (phase === 'ready' && !hasRole) {
+    return <ErrorState message="No active role is assigned to your account. Contact your organisation administrator." onRetry={() => void loadBovineData()} />;
   }
   return <>{children}</>;
 }
@@ -191,67 +246,6 @@ export function BiometricScanIcon({ size = 28, color = colors.surface }: { size?
   );
 }
 
-export function AccountButton() {
-  const profile = useBovineStore((state) => state.profile);
-  const name = profile?.full_name?.trim() || 'Account';
-  const initials = name === 'Account' ? '' : name.split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '').join('');
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Open account for ${name}`}
-      onPress={() => router.push('/profile')}
-      hitSlop={8}
-      style={({ pressed }) => [styles.accountButton, pressed && styles.buttonPressed]}
-    >
-      {initials ? <Text style={styles.accountInitials}>{initials}</Text> : <Ionicons name="person" size={15} color={colors.surface} />}
-    </Pressable>
-  );
-}
-
-export function AppHeader({ language, onLanguageChange, onNetworkPress, offline = false }: { language: Language; onLanguageChange: (value: Language) => void; onNetworkPress?: () => void; offline?: boolean }) {
-  return (
-    <View style={styles.appHeader}>
-      <View style={styles.brandRow}>
-        <LogoMark />
-        <View style={styles.brandCopy}>
-          <Text style={styles.brandName}>MOOZZLE</Text>
-          <Text numberOfLines={2} style={styles.brandSubtitle}>Bovine Biometric Identification</Text>
-        </View>
-      </View>
-      <View style={styles.headerActions}>
-        <View style={styles.languageRow}>
-          <AccountButton />
-          {(['EN', 'HI', 'GU'] as Language[]).map((item, index) => (
-            <View style={styles.languageItem} key={item}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: language === item }}
-                onPress={() => onLanguageChange(item)}
-                hitSlop={8}
-              >
-                <Text style={[styles.languageText, language === item && styles.languageActive]}>{item}</Text>
-              </Pressable>
-              {index < 2 && <Text style={styles.languageDivider}>|</Text>}
-            </View>
-          ))}
-        </View>
-        {onNetworkPress ? (
-          <Pressable accessibilityRole="button" accessibilityLabel="Open offline sync manager" onPress={onNetworkPress} style={[styles.networkChip, offline && styles.networkChipOffline]}>
-            <View style={[styles.onlineDot, offline && styles.offlineDot]} />
-            <Text adjustsFontSizeToFit minimumFontScale={0.85} numberOfLines={1} style={[styles.networkText, offline && styles.networkTextOffline]}>{tr(language, offline ? 'offline' : 'online')}</Text>
-            <Ionicons name="chevron-forward" size={13} color={offline ? colors.warning : colors.primary} />
-          </Pressable>
-        ) : (
-          <View style={[styles.networkChip, offline && styles.networkChipOffline]}>
-            <View style={[styles.onlineDot, offline && styles.offlineDot]} />
-            <Text adjustsFontSizeToFit minimumFontScale={0.85} numberOfLines={1} style={[styles.networkText, offline && styles.networkTextOffline]}>{tr(language, offline ? 'offline' : 'online')}</Text>
-          </View>
-        )}
-      </View>
-    </View>
-  );
-}
-
 export function PageHeader({ title, eyebrow, onBack }: { title: string; eyebrow?: string; onBack?: () => void }) {
   return (
     <View style={styles.pageHeader}>
@@ -264,47 +258,6 @@ export function PageHeader({ title, eyebrow, onBack }: { title: string; eyebrow?
         {eyebrow ? <Text style={styles.pageHeaderEyebrow}>{eyebrow}</Text> : null}
         <Text style={styles.pageHeaderTitle}>{title}</Text>
       </View>
-    </View>
-  );
-}
-
-type TabName = 'home' | 'identify' | 'records' | 'verify';
-
-export function BottomNav({ active }: { active: TabName }) {
-  const insets = useSafeAreaInsets();
-  const handleNavigate = useCallback((tab: TabName) => {
-    const routes: Record<TabName, string> = {
-      home: '/(tabs)',
-      identify: '/(tabs)/identify',
-      records: '/(tabs)/records',
-      verify: '/(tabs)/verify',
-    };
-    router.replace(routes[tab] as never);
-  }, []);
-  const language = useAppStore((state) => state.language);
-  const items: { key: TabName; icon?: keyof typeof Ionicons.glyphMap; biometric?: boolean; label: string }[] = [
-    { key: 'home', icon: 'home', label: tr(language, 'home') },
-    { key: 'identify', biometric: true, label: tr(language, 'identify') },
-    { key: 'records', icon: 'document-text-outline', label: tr(language, 'records') },
-    { key: 'verify', icon: 'shield-checkmark-outline', label: tr(language, 'verify') },
-  ];
-
-  return (
-    <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-      {items.map((item) => (
-        <Pressable
-          accessibilityRole="tab"
-          accessibilityState={{ selected: active === item.key }}
-          accessibilityLabel={item.label}
-          key={item.key}
-          onPress={() => handleNavigate(item.key)}
-          style={styles.tabButton}
-        >
-          {item.biometric ? <BiometricScanIcon size={28} color={active === item.key ? colors.primary : colors.muted} /> : <Ionicons name={item.icon ?? 'ellipse-outline'} size={28} color={active === item.key ? colors.primary : colors.muted} />}
-          <Text style={[styles.tabLabel, active === item.key && styles.tabLabelActive]}>{item.label}</Text>
-          {active === item.key && <View style={styles.tabIndicator} />}
-        </Pressable>
-      ))}
     </View>
   );
 }
@@ -491,7 +444,7 @@ const styles = StyleSheet.create({
   sectionTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   sectionTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 22 },
   sectionAction: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 14 },
-  card: { backgroundColor: colors.surface, borderRadius: 14, borderWidth: 1, borderColor: colors.border, padding: 16, shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  card: { backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 16, shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
   biometricScanIcon: { alignItems: 'center', justifyContent: 'center' },
   primaryButton: { minHeight: 50, borderRadius: 12, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
   button_primary: { backgroundColor: colors.primary },

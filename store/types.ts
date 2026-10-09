@@ -1,21 +1,12 @@
+import type { Level, Permission, Role, ServiceKind } from '@/lib/rbac';
+
 export type AnimalType = 'Cattle' | 'Buffalo';
 export type Sex = 'Female' | 'Male';
 export type BiometricStatus = 'Enrolled' | 'Pending Quality' | 'Retired';
 export type AnimalStatus = 'Active' | 'Retired';
+export type ApprovalStatus = 'Draft' | 'Submitted' | 'Pending Review' | 'Approved' | 'Rejected' | 'Corrected' | 'Retired';
 export type Language = 'EN' | 'HI' | 'GU';
-
-export type LivestockRecordType =
-  | 'Artificial Insemination'
-  | 'Vaccination'
-  | 'Treatment'
-  | 'Pregnancy Diagnosis'
-  | 'Calving'
-  | 'Insurance Verification'
-  | 'Movement';
-
-export type ServiceType = 'health' | 'ai' | 'insurance' | 'traceability';
-export type UserRole = 'AI Technician' | 'Vet' | 'Farmer' | 'Field Officer';
-export const USER_ROLES: UserRole[] = ['AI Technician', 'Vet', 'Farmer', 'Field Officer'];
+export type ServiceType = ServiceKind;
 
 /** Row shapes as stored in Supabase. */
 export interface AnimalRow {
@@ -26,8 +17,6 @@ export interface AnimalRow {
   breed: string;
   sex: 'female' | 'male';
   age_years: number;
-  owner_name: string;
-  owner_phone: string;
   farm_name: string;
   village: string;
   district: string;
@@ -37,19 +26,20 @@ export interface AnimalRow {
   retire_reason: string | null;
   retired_at: string | null;
   captured_images_count: number;
+  organisation_id: string | null;
+  farm_id: string | null;
+  owner_user_id: string | null;
+  approval_status: ApprovalStatus;
+  duplicate_of: string | null;
+  review_note: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export interface BiometricTemplateRow {
-  id: string;
-  user_id: string;
+export interface OwnerRow {
   animal_id: string;
-  moozzle_id: string;
-  quality_score: number;
-  embedding_preview: string;
-  model_version: string;
-  created_at: string;
+  owner_name: string;
+  owner_phone: string;
 }
 
 export interface ServiceRecordRow {
@@ -61,18 +51,126 @@ export interface ServiceRecordRow {
   date: string;
   technician_name: string;
   details: Record<string, string>;
+  performer_role: string;
+  corrects_id: string | null;
+  signed_at: string;
   created_at: string;
 }
 
 export interface ProfileRow {
   id: string;
   full_name: string;
-  role: UserRole;
+  email: string;
+  active_role: Role;
   phone: string;
   village: string;
+  privileged_until: string | null;
+  privileged_reason: string | null;
+  notification_prefs: Record<string, boolean>;
 }
 
-/** App-facing animal, derived from an AnimalRow (plus its template). */
+export interface UserRoleRow {
+  id: string;
+  user_id: string;
+  role: Role;
+  organisation_id: string | null;
+  farm_ids: string[];
+  districts: string[];
+  created_at: string;
+}
+
+export interface OrganisationRow {
+  id: string;
+  name: string;
+  org_type: string;
+  district: string;
+  state: string;
+}
+
+export interface FarmRow {
+  id: string;
+  organisation_id: string | null;
+  name: string;
+  village: string;
+  district: string;
+  state: string;
+}
+
+export interface PolicyRow {
+  id: string;
+  animal_id: string;
+  policy_number: string;
+  insurer_org_id: string;
+  holder_name: string;
+  coverage_amount: number;
+  start_date: string;
+  end_date: string;
+  claim_status: string;
+  verification_status: 'Pending' | 'Verified' | 'Mismatch' | 'Manual Review' | 'Exception';
+  last_verified_at: string | null;
+}
+
+export type RequestKind = 'transfer' | 'retire' | 'correction' | 'vet_help' | 'ai_service';
+export type RequestStatus = 'Submitted' | 'Approved' | 'Rejected' | 'Accepted' | 'Declined' | 'Completed';
+
+export interface RequestRow {
+  id: string;
+  kind: RequestKind;
+  animal_id: string | null;
+  moozzle_id: string;
+  requested_by: string;
+  requester_role: string;
+  requester_name: string;
+  payload: Record<string, string>;
+  status: RequestStatus;
+  reviewer_role: string | null;
+  review_note: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationRow {
+  id: string;
+  user_id: string;
+  user_role: string;
+  title: string;
+  message: string;
+  type: 'info' | 'alert' | 'approval' | 'reminder' | 'sync' | 'security' | 'integration';
+  link: string | null;
+  read: boolean;
+  created_at: string;
+}
+
+export interface AuditRow {
+  id: string;
+  event_id: string;
+  user_id: string | null;
+  user_role: string;
+  action: string;
+  target_moozzle_id: string;
+  details: string;
+  outcome: 'success' | 'denied' | 'failed' | 'no_match' | 'requested';
+  reason: string;
+  source: string;
+  created_at: string;
+}
+
+export interface SettingRow {
+  key: string;
+  value: string | number | boolean;
+  description: string;
+  risk: 'normal' | 'high';
+  updated_at: string;
+}
+
+export interface PermissionRow {
+  role: Role;
+  permission: Permission;
+  level: Level;
+  updated_at: string;
+}
+
+/** App-facing animal, derived from an AnimalRow (+ owner data when authorised). */
 export interface Animal {
   id: string;
   moozzle_id: string;
@@ -80,57 +178,107 @@ export interface Animal {
   breed: string;
   sex: Sex;
   age_years: number;
+  /** Empty when the active role is not authorised to see owner personal data. */
   owner_name: string;
   owner_phone: string;
+  owner_visible: boolean;
+  owner_user_id: string | null;
+  farm_id: string | null;
   farm_name: string;
+  organisation_id: string | null;
   village: string;
   district: string;
   state: string;
   registration_date: string;
   biometric_status: BiometricStatus;
   current_status: AnimalStatus;
+  approval_status: ApprovalStatus;
+  duplicate_of: string | null;
+  review_note: string | null;
   retire_reason?: string;
   retire_date?: string;
   captured_images_count: number;
-  biometric_template_id: string;
+  created_by: string;
   created_at: string;
   updated_at: string;
   /** True while the record only exists in the offline queue. */
   pending_sync?: boolean;
 }
 
-export interface BiometricTemplate {
-  template_id: string;
-  animal_id: string;
-  moozzle_id: string;
-  quality_score: number;
-  model_version: string;
-  embedding_preview: string;
-  created_at: string;
-}
-
 export interface LivestockServiceRecord {
   id: string;
   animal_id: string;
   service_type: ServiceType;
-  record_type: LivestockRecordType | string;
+  record_type: string;
   date: string;
   performed_by: string;
+  performer_role: string;
+  author_id: string;
   details: string;
   metadata: Record<string, string>;
+  corrects_id: string | null;
+  /** Set when a later signed amendment corrects this record. */
+  corrected_by: string | null;
+  created_at: string;
   pending_sync?: boolean;
 }
 
-/** Writes waiting in the on-device queue until the next sync. */
+export interface RegisterPayload {
+  id: string;
+  moozzle_id: string;
+  species: 'cattle' | 'buffalo';
+  breed: string;
+  sex: 'female' | 'male';
+  age_years: number;
+  owner_name: string;
+  owner_phone: string;
+  farm_id: string | null;
+  farm_name: string;
+  village: string;
+  district: string;
+  state: string;
+  captured_images_count: number;
+  quality_score: number;
+  save_as_draft: boolean;
+  source: string;
+}
+
+export interface ServicePayload {
+  id: string;
+  animal_id: string;
+  service_type: ServiceType;
+  title: string;
+  date: string;
+  technician_name: string;
+  details: Record<string, string>;
+  corrects_id: string | null;
+  source: string;
+}
+
+/** Writes waiting in the on-device queue. They are re-authorised by the server on upload. */
 export type QueuedOperation =
-  | { kind: 'animal'; opId: string; userId: string; queuedAt: string; animal: Omit<AnimalRow, 'created_at' | 'updated_at'> & { created_at: string }; template: Omit<BiometricTemplateRow, 'created_at'> & { created_at: string } }
-  | { kind: 'service'; opId: string; userId: string; queuedAt: string; record: Omit<ServiceRecordRow, 'created_at'> & { created_at: string } }
-  | { kind: 'retire'; opId: string; userId: string; queuedAt: string; animalId: string; reason: string; retiredAt: string };
+  | { kind: 'animal'; opId: string; userId: string; role: Role; queuedAt: string; payload: RegisterPayload }
+  | { kind: 'service'; opId: string; userId: string; role: Role; queuedAt: string; payload: ServicePayload; moozzleId: string };
+
+export interface FailedOperation {
+  operation: QueuedOperation;
+  error: string;
+  failedAt: string;
+  revoked: boolean;
+}
+
+export interface SyncConflict {
+  provisionalId: string;
+  assignedId: string;
+  note: string;
+}
 
 export interface SyncSummary {
   recordsUploaded: number;
   imagesUploaded: number;
   errors: number;
+  revoked: number;
+  conflicts: SyncConflict[];
   completedAt: string;
 }
 

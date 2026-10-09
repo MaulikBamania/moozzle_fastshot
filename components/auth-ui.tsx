@@ -1,9 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, LogoMark } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
+import { useAppStore } from '@/store/useAppStore';
+import type { Language } from '@/store/types';
 
 const heroPhoto = require('../assets/design/photo-gir-cow-37fd7402.jpg');
 
@@ -31,11 +33,12 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
             <LogoMark compact />
             <View>
               <Text style={styles.brandName}>MOOZZLE</Text>
-              <Text style={styles.brandSubtitle}>Bovine Biometric Identification</Text>
+              <Text style={styles.brandSubtitle}>Bovine Muzzle Biometric Identification</Text>
             </View>
+            <LanguageSelector />
           </View>
           <View style={styles.heroCopy}>
-            <Text style={styles.heroTitle}>Every bovine,{'\n'}one permanent ID.</Text>
+            <Text style={styles.heroTitle}>One Muzzle. One Identity.{'\n'}One Digital Record.</Text>
             <View style={styles.heroPoints}>
               <HeroPoint icon="finger-print-outline" label="Muzzle enrolment" />
               <HeroPoint icon="cloud-done-outline" label="Cloud archive" />
@@ -50,6 +53,20 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
+  );
+}
+
+function LanguageSelector() {
+  const language = useAppStore((state) => state.language);
+  const setLanguage = useAppStore((state) => state.setLanguage);
+  return (
+    <View style={styles.lang}>
+      {(['EN', 'HI', 'GU'] as Language[]).map((item) => (
+        <Pressable key={item} accessibilityRole="button" accessibilityLabel={`Language ${item}`} accessibilityState={{ selected: language === item }} onPress={() => setLanguage(item)} style={[styles.langItem, language === item && styles.langItemActive]}>
+          <Text style={[styles.langText, language === item && styles.langTextActive]}>{item}</Text>
+        </Pressable>
+      ))}
+    </View>
   );
 }
 
@@ -87,8 +104,13 @@ const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.background },
   content: { flexGrow: 1 },
   hero: { minHeight: 290, paddingHorizontal: 20, paddingBottom: 54, justifyContent: 'space-between', overflow: 'hidden', backgroundColor: colors.primary },
-  heroShade: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(10, 38, 18, 0.62)' },
+  heroShade: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(4, 47, 34, 0.64)' },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  lang: { marginLeft: 'auto', flexDirection: 'row', borderRadius: 10, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.14)' },
+  langItem: { minWidth: 40, minHeight: 36, alignItems: 'center', justifyContent: 'center' },
+  langItemActive: { backgroundColor: 'rgba(255,255,255,0.3)' },
+  langText: { color: '#D1FAE5', fontFamily: Fonts.semiBold, fontSize: 12 },
+  langTextActive: { color: colors.surface, fontFamily: Fonts.bold },
   brandName: { color: colors.surface, fontFamily: Fonts.bold, fontSize: 22, letterSpacing: 0.4 },
   brandSubtitle: { color: '#C9E8D3', fontFamily: Fonts.medium, fontSize: 11 },
   heroCopy: { gap: 14, marginTop: 28 },

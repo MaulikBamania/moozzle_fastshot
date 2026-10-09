@@ -1,0 +1,3 @@
+# Auth SDK migration
+
+Updated @fastshot/auth from `file:vendor/fastshot-auth-1.2.3.tgz` to bundled 1.2.3. This release binds login tickets to this client with PKCE and persists native callbacks securely. Use isInitializing for initial session-restoration guards; isLoading also covers sign-in and sign-out, so use it only to disable request controls without unmounting forms. Expo crypto and secure-store peers were aligned to this project's Expo SDK. The archive and manifest are part of the exported workspace; keep them with package.json. Reinstall dependencies and rebuild native apps to apply the project-specific callback scheme. Provider login, email delivery and native device behavior still require verification.
