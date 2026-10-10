@@ -42,9 +42,21 @@ export const colors = {
 const girPhoto = require('../assets/design/photo-gir-cow-37fd7402.jpg');
 const murrahPhoto = require('../assets/design/photo-murrah-buffalo-c3170d28.jpg');
 const kankrejPhoto = require('../assets/photo-kankrej-cattle.png');
+const hfPhoto = require('../assets/photo-hf-cattle.png');
 
 function isKankrej(breed: string | undefined): boolean {
   return breed?.trim().toLowerCase() === 'kankrej';
+}
+
+/** Holstein Friesian, Holstein Friesian cross, HF and HF Cross (any casing / separators). */
+function isHolsteinFriesian(breed: string | undefined): boolean {
+  const normalized = breed?.trim().toLowerCase().replace(/[^a-z]+/g, ' ').trim() ?? '';
+  return normalized.startsWith('holstein') || normalized === 'hf' || normalized.startsWith('hf ');
+}
+
+/** Portrait breed photos are anchored to the top so the face stays inside square thumbnails. */
+function isPortraitBreedPhoto(animalType: Animal['animal_type'] | undefined, breed?: string): boolean {
+  return animalType !== 'Buffalo' && (isKankrej(breed) || isHolsteinFriesian(breed));
 }
 
 const translations: Record<Language, Record<string, string>> = {
@@ -154,6 +166,7 @@ export function formatMoozzleId(id: string): string {
 /** Breed/species artwork, used where an animal has no live-engine muzzle reference capture. */
 export function getAnimalImageSource(animalType: Animal['animal_type'] | undefined, breed?: string): number {
   if (animalType !== 'Buffalo' && isKankrej(breed)) return kankrejPhoto;
+  if (animalType !== 'Buffalo' && isHolsteinFriesian(breed)) return hfPhoto;
   return animalType === 'Buffalo' ? murrahPhoto : girPhoto;
 }
 
@@ -349,8 +362,7 @@ export function AnimalPhoto({ animal, size = 72, rounded = true, style }: { anim
       accessibilityLabel={animal ? `${animal.breed} ${animal.animal_type} reference` : 'Bovine reference'}
       source={getAnimalImageSource(animal?.animal_type, animal?.breed)}
       contentFit="cover"
-      // Portrait Kankrej photo: anchor to the top so horns and face stay in square thumbnails.
-      contentPosition={animal?.animal_type !== 'Buffalo' && isKankrej(animal?.breed) ? 'top' : 'center'}
+      contentPosition={isPortraitBreedPhoto(animal?.animal_type, animal?.breed) ? 'top' : 'center'}
       style={[{ width: size, height: size, borderRadius: rounded ? 12 : 0, backgroundColor: colors.primaryLight }, style]}
     />
   );
