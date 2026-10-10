@@ -41,6 +41,11 @@ export const colors = {
 
 const girPhoto = require('../assets/design/photo-gir-cow-37fd7402.jpg');
 const murrahPhoto = require('../assets/design/photo-murrah-buffalo-c3170d28.jpg');
+const kankrejPhoto = require('../assets/photo-kankrej-cattle.png');
+
+function isKankrej(breed: string | undefined): boolean {
+  return breed?.trim().toLowerCase() === 'kankrej';
+}
 
 const translations: Record<Language, Record<string, string>> = {
   EN: {
@@ -146,8 +151,9 @@ export function formatMoozzleId(id: string): string {
   return id.replace(/(\d{4})(\d{4})(\d{4})/, '$1 $2 $3');
 }
 
-/** Species artwork, used where an animal has no live-engine muzzle reference capture. */
-export function getAnimalImageSource(animalType: Animal['animal_type'] | undefined): number {
+/** Breed/species artwork, used where an animal has no live-engine muzzle reference capture. */
+export function getAnimalImageSource(animalType: Animal['animal_type'] | undefined, breed?: string): number {
+  if (animalType !== 'Buffalo' && isKankrej(breed)) return kankrejPhoto;
   return animalType === 'Buffalo' ? murrahPhoto : girPhoto;
 }
 
@@ -341,8 +347,10 @@ export function AnimalPhoto({ animal, size = 72, rounded = true, style }: { anim
   return (
     <Image
       accessibilityLabel={animal ? `${animal.breed} ${animal.animal_type} reference` : 'Bovine reference'}
-      source={getAnimalImageSource(animal?.animal_type)}
+      source={getAnimalImageSource(animal?.animal_type, animal?.breed)}
       contentFit="cover"
+      // Portrait Kankrej photo: anchor to the top so horns and face stay in square thumbnails.
+      contentPosition={animal?.animal_type !== 'Buffalo' && isKankrej(animal?.breed) ? 'top' : 'center'}
       style={[{ width: size, height: size, borderRadius: rounded ? 12 : 0, backgroundColor: colors.primaryLight }, style]}
     />
   );
