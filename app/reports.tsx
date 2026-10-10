@@ -60,8 +60,8 @@ function ReportsContent() {
     setMessage('');
     try {
       // De-identified or limited exports omit owner details and exact location.
-      const headers = identifiable ? ['moozzle_id', 'species', 'breed', 'sex', 'age_years', 'farm', 'village', 'district', 'status', 'approval', 'owner'] : ['moozzle_id', 'species', 'breed', 'sex', 'age_years', 'district', 'status'];
-      const rows = visibleAnimals.map((a) => (identifiable ? [a.moozzle_id, a.animal_type, a.breed, a.sex, a.age_years, a.farm_name, a.village, a.district, a.current_status, a.approval_status, a.owner_visible ? a.owner_name : ''] : [a.moozzle_id, a.animal_type, a.breed, a.sex, a.age_years, a.district, a.current_status]));
+      const headers = identifiable ? ['moozzle_id', 'species', 'breed', 'sex', 'age_years', 'age_months', 'farm', 'village', 'district', 'status', 'approval', 'owner'] : ['moozzle_id', 'species', 'breed', 'sex', 'age_years', 'age_months', 'district', 'status'];
+      const rows = visibleAnimals.map((a) => (identifiable ? [a.moozzle_id, a.animal_type, a.breed, a.sex, a.age_years, a.age_months, a.farm_name, a.village, a.district, a.current_status, a.approval_status, a.owner_visible ? a.owner_name : ''] : [a.moozzle_id, a.animal_type, a.breed, a.sex, a.age_years, a.age_months, a.district, a.current_status]));
       const outcome = await shareExport('MOOZZLE animal register', toCsv(headers, rows), rows.length);
       setMessage(outcome === 'copied' ? `${rows.length} rows copied as CSV. Export recorded in the audit trail.` : 'Export shared and recorded in the audit trail.');
     } catch (caught) {

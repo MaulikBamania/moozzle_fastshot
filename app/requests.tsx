@@ -77,7 +77,7 @@ function RequestsContent() {
         <FormSheet
           visible
           heading={kind === 'vet_help' ? 'Get veterinary help' : kind === 'ai_service' ? 'Request AI service' : 'Request a correction'}
-          specs={[{ title: 'Request', fields: kind === 'correction' ? [{ key: 'note', label: 'What is incorrect?', required: true, multiline: true }, { key: 'breed', label: 'Correct breed (optional)' }, { key: 'age_years', label: 'Correct age (optional)', keyboard: 'numeric' }, { key: 'village', label: 'Correct village (optional)' }] : [{ key: 'note', label: kind === 'vet_help' ? 'What is wrong?' : 'Heat observed / preferred time', required: true, multiline: true }, { key: 'urgency', label: 'Urgency (Normal / Urgent)', placeholder: 'Normal' }] }]}
+          specs={[{ title: 'Request', fields: kind === 'correction' ? [{ key: 'note', label: 'What is incorrect?', required: true, multiline: true }, { key: 'breed', label: 'Correct breed (optional)' }, { key: 'age_years', label: 'Correct age – years (optional)', keyboard: 'numeric' }, { key: 'age_months', label: 'Correct age – extra months, 0-11 (optional)', keyboard: 'numeric' }, { key: 'village', label: 'Correct village (optional)' }] : [{ key: 'note', label: kind === 'vet_help' ? 'What is wrong?' : 'Heat observed / preferred time', required: true, multiline: true }, { key: 'urgency', label: 'Urgency (Normal / Urgent)', placeholder: 'Normal' }] }]}
           submitLabel="Send Request"
           onClose={() => setOpen(false)}
           onSubmit={async ({ values }) => {

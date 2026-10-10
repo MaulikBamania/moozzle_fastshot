@@ -1,3 +1,4 @@
+import { AGE_MAX_MONTHS, AGE_MAX_YEARS } from '@/lib/age';
 import * as Crypto from 'expo-crypto';
 import { useMemo } from 'react';
 import { create } from 'zustand';
@@ -61,6 +62,7 @@ export interface NewAnimalInput {
   breed: string;
   sex: Sex;
   ageYears: number;
+  ageMonths: number;
   ownerName: string;
   ownerPhone: string;
   farmId: string | null;
@@ -324,6 +326,7 @@ function toRegisterPayload(input: NewAnimalInput): RegisterPayload {
     breed: input.breed,
     sex: input.sex === 'Female' ? 'female' : 'male',
     age_years: input.ageYears,
+    age_months: input.ageMonths,
     owner_name: input.ownerName.trim(),
     owner_phone: input.ownerPhone.trim(),
     farm_id: input.farmId,
@@ -442,9 +445,19 @@ export async function retireAnimal(animalId: string, moozzleId: string, reason: 
   }
 }
 
+function checkAgeField(value: string | undefined, max: number, label: string) {
+  const text = value?.trim() ?? '';
+  if (text === '') return;
+  if (!/^\d+$/.test(text) || Number(text) > max) throw new Error(`${label} must be a whole number from 0 to ${max}.`);
+}
+
 export async function createRequest(kind: Exclude<RequestKind, 'retire'>, animalId: string, moozzleId: string, payload: Record<string, string>): Promise<void> {
   requireSession();
   requireOnline();
+  if (kind === 'correction') {
+    checkAgeField(payload.age_years, AGE_MAX_YEARS, 'Correct age – years');
+    checkAgeField(payload.age_months, AGE_MAX_MONTHS, 'Correct age – months');
+  }
   bump();
   try {
     await rpc('create_request', { p_kind: kind, p_animal: animalId, p_payload: payload }, moozzleId);
@@ -605,6 +618,7 @@ function toAnimal(row: AnimalRow, owner: OwnerRow | undefined, pending = false):
     breed: row.breed,
     sex: row.sex === 'male' ? 'Male' : 'Female',
     age_years: row.age_years,
+    age_months: row.age_months ?? 0,
     owner_name: owner?.owner_name ?? '',
     owner_phone: owner?.owner_phone ?? '',
     owner_visible: !!owner,
@@ -643,6 +657,7 @@ function queuedAnimal(op: Extract<QueuedOperation, { kind: 'animal' }>): Animal 
       breed: p.breed,
       sex: p.sex,
       age_years: p.age_years,
+      age_months: p.age_months ?? 0,
       farm_name: p.farm_name,
       village: p.village,
       district: p.district,

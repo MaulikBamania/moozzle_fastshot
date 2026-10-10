@@ -5,6 +5,7 @@ import { StackScreen } from '@/components/app-chrome';
 import { FormSheet } from '@/components/record-forms';
 import { Card, colors, DataGate, EmptyState, formatMoozzleId, Pill, PrimaryButton } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
+import { formatAgeShort } from '@/lib/age';
 import type { Role } from '@/lib/rbac';
 import { reviewAnimal, reviewRequest, useBovineData, useBovineStore, useSession } from '@/store/useBovineStore';
 import type { Animal, RequestRow } from '@/store/types';
@@ -76,7 +77,7 @@ function ApprovalsContent() {
             <Text selectable style={styles.id}>{formatMoozzleId(animal.moozzle_id)}</Text>
             <Pill label={animal.approval_status} tone="amber" />
           </View>
-          <Text style={styles.meta}>{animal.breed} {animal.animal_type} · {animal.sex} · {animal.age_years} yrs · {animal.farm_name || animal.village}</Text>
+          <Text style={styles.meta}>{animal.breed} {animal.animal_type} · {animal.sex} · {formatAgeShort(animal.age_years, animal.age_months)} · {animal.farm_name || animal.village}</Text>
           {animal.duplicate_of ? <Text style={styles.warn}>Possible duplicate of an existing identity — verify before approving.</Text> : null}
           <View style={styles.row}>
             <PrimaryButton label="Open" variant="outline" onPress={() => router.push(`/animal/${animal.moozzle_id}`)} style={styles.flex} />

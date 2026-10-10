@@ -17,6 +17,8 @@ export interface AnimalRow {
   breed: string;
   sex: 'female' | 'male';
   age_years: number;
+  /** 0-11; older rows default to 0. */
+  age_months?: number;
   farm_name: string;
   village: string;
   district: string;
@@ -179,6 +181,8 @@ export interface Animal {
   breed: string;
   sex: Sex;
   age_years: number;
+  /** Months beyond whole years (0-11). */
+  age_months: number;
   /** Empty when the active role is not authorised to see owner personal data. */
   owner_name: string;
   owner_phone: string;
@@ -233,6 +237,8 @@ export interface RegisterPayload {
   breed: string;
   sex: 'female' | 'male';
   age_years: number;
+  /** Optional so offline items queued before months existed still sync. */
+  age_months?: number;
   owner_name: string;
   owner_phone: string;
   farm_id: string | null;
@@ -367,6 +373,7 @@ export interface MatchCandidate {
   breed?: string;
   sex?: 'female' | 'male';
   age_years?: number;
+  age_months?: number;
   farm_name?: string;
   village?: string;
   reference_image_path?: string | null;

@@ -5,6 +5,7 @@ import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View
 import { go, TabShell } from '@/components/app-chrome';
 import { AnimalPhoto, approvalTone, colors, DataGate, EmptyState, formatMoozzleId, OptionChip, Pill, PrimaryButton, TextField, tr } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
+import { formatAgeShort } from '@/lib/age';
 import { allows } from '@/lib/rbac';
 import { useAppStore } from '@/store/useAppStore';
 import { loadBovineData, useBovineData, useBovineStore, useSession } from '@/store/useBovineStore';
@@ -115,7 +116,7 @@ function RecordsContent() {
           <AnimalPhoto animal={item} size={58} />
           <View style={styles.flex}>
             <Text selectable style={styles.rowId}>{formatMoozzleId(item.moozzle_id)}</Text>
-            <Text style={styles.rowMeta}>{item.breed} {item.animal_type} · {item.sex} · {item.age_years} yrs</Text>
+            <Text style={styles.rowMeta}>{item.breed} {item.animal_type} · {item.sex} · {formatAgeShort(item.age_years, item.age_months)}</Text>
             <Text style={styles.rowMeta} numberOfLines={1}>{item.farm_name || 'No farm'} · {item.village}{item.owner_visible && item.owner_name ? ` · ${item.owner_name}` : ''}</Text>
             <View style={styles.pills}>
               <Pill label={item.approval_status} tone={approvalTone(item.approval_status)} />

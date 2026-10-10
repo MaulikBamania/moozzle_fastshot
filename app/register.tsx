@@ -23,6 +23,7 @@ import { useCaptureHandoff } from '@/store/useCaptureHandoff';
 import { useIsOnline } from '@/store/useConnectivity';
 import type { AnimalType, MuzzleAnalysis, PipelineStage, Sex } from '@/store/types';
 import { Fonts } from '@/constants/Typography';
+import { AGE_MAX_MONTHS, AGE_MAX_YEARS, formatAge } from '@/lib/age';
 
 const MIN_FRAMES = 3;
 const MAX_FRAMES = 5;
@@ -70,7 +71,8 @@ function RegisterContent() {
   const [animalType, setAnimalType] = useState<AnimalType>(handed?.detection.species === 'buffalo' ? 'Buffalo' : 'Cattle');
   const [breed, setBreed] = useState(handed?.detection.species === 'buffalo' ? 'Murrah' : 'Gir');
   const [sex, setSex] = useState<Sex>('Female');
-  const [age, setAge] = useState(4);
+  const [ageYears, setAgeYears] = useState(4);
+  const [ageMonths, setAgeMonths] = useState(0);
   const [stateName, setStateName] = useState('Gujarat');
   const [district, setDistrict] = useState('Ahmedabad');
   const [village, setVillage] = useState(profileVillage);
@@ -184,7 +186,8 @@ function RegisterContent() {
         animalType,
         breed,
         sex,
-        ageYears: age,
+        ageYears,
+        ageMonths,
         ownerName: owner,
         ownerPhone,
         farmId: selectedFarmId,
@@ -210,7 +213,7 @@ function RegisterContent() {
     } finally {
       setSaving(false);
     }
-  }, [age, animalType, breed, district, farmId, frames, owner, ownerPhone, saveAsDraft, saving, selectedFarmId, sex, stateName, village]);
+  }, [ageMonths, ageYears, animalType, breed, district, farmId, frames, owner, ownerPhone, saveAsDraft, saving, selectedFarmId, sex, stateName, village]);
 
   const resetWizard = useCallback(() => {
     setStep(1);
@@ -235,7 +238,7 @@ function RegisterContent() {
         </View>
         <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={styles.flex} contentContainerStyle={styles.content}>
           <WizardStepper step={step} />
-          {step === 1 && <DetailsStep animalType={animalType} breed={breed} sex={sex} age={age} stateName={stateName} district={district} village={village} owner={owner} ownerPhone={ownerPhone} farmId={farmId} breeds={breeds} farmOptions={farmOptions.map((farm) => ({ id: farm.id, label: `${farm.name} · ${farm.village}` }))} selectedFarmId={selectedFarmId} onFarm={chooseFarm} isFarmer={isFarmer} error={detailsError} onType={handleTypeChange} onBreed={setBreed} onSex={setSex} onAge={setAge} onState={setStateName} onDistrict={setDistrict} onVillage={setVillage} onOwner={setOwner} onOwnerPhone={setOwnerPhone} onFarmId={setFarmId} onNext={goToCapture} />}
+          {step === 1 && <DetailsStep animalType={animalType} breed={breed} sex={sex} ageYears={ageYears} ageMonths={ageMonths} stateName={stateName} district={district} village={village} owner={owner} ownerPhone={ownerPhone} farmId={farmId} breeds={breeds} farmOptions={farmOptions.map((farm) => ({ id: farm.id, label: `${farm.name} · ${farm.village}` }))} selectedFarmId={selectedFarmId} onFarm={chooseFarm} isFarmer={isFarmer} error={detailsError} onType={handleTypeChange} onBreed={setBreed} onSex={setSex} onAgeYears={setAgeYears} onAgeMonths={setAgeMonths} onState={setStateName} onDistrict={setDistrict} onVillage={setVillage} onOwner={setOwner} onOwnerPhone={setOwnerPhone} onFarmId={setFarmId} onNext={goToCapture} />}
           {step === 2 && (
             <CaptureStep
               frames={frames}
@@ -254,7 +257,7 @@ function RegisterContent() {
             />
           )}
           {step === 3 && <ProcessingStep frames={frames.length} activeStep={saveStep} saving={saving} saveError={saveError} needsApproval={needsApproval} saveAsDraft={saveAsDraft} blocked={registered?.blocked ? registered : null} onDraft={setSaveAsDraft} onBack={() => { setRegistered(null); setStep(2); }} onComplete={() => void handleComplete()} onExit={() => router.replace('/(tabs)')} />}
-          {step === 4 && registered && <SuccessStep result={registered} summary={{ animalType, breed, sex, age, village, stateName, captures: frames.length }} cropUri={frames[0]?.analysis.cropUri ?? null} isFarmer={isFarmer} onProfile={() => router.push(`/animal/${registered.moozzleId}`)} onIdentify={() => router.replace('/(tabs)/identify')} onRegisterAnother={resetWizard} />}
+          {step === 4 && registered && <SuccessStep result={registered} summary={{ animalType, breed, sex, ageYears, ageMonths, village, stateName, captures: frames.length }} cropUri={frames[0]?.analysis.cropUri ?? null} isFarmer={isFarmer} onProfile={() => router.push(`/animal/${registered.moozzleId}`)} onIdentify={() => router.replace('/(tabs)/identify')} onRegisterAnother={resetWizard} />}
         </ScrollView>
       </View>
       <Modal visible={showCancel} transparent animationType="fade" onRequestClose={() => setShowCancel(false)}>
@@ -296,7 +299,8 @@ interface DetailsProps {
   animalType: AnimalType;
   breed: string;
   sex: Sex;
-  age: number;
+  ageYears: number;
+  ageMonths: number;
   stateName: string;
   district: string;
   village: string;
@@ -312,7 +316,8 @@ interface DetailsProps {
   onType: (value: AnimalType) => void;
   onBreed: (value: string) => void;
   onSex: (value: Sex) => void;
-  onAge: (value: number) => void;
+  onAgeYears: (value: number) => void;
+  onAgeMonths: (value: number) => void;
   onState: (value: string) => void;
   onDistrict: (value: string) => void;
   onVillage: (value: string) => void;
@@ -335,7 +340,14 @@ function DetailsStep(props: DetailsProps) {
         </ScrollView>
         <Text style={styles.formSectionTitle}>Sex</Text>
         <View style={styles.optionRow}><OptionChip label="Female" selected={props.sex === 'Female'} onPress={() => props.onSex('Female')} /><OptionChip label="Male" selected={props.sex === 'Male'} onPress={() => props.onSex('Male')} /></View>
-        <View style={styles.ageRow}><View><Text style={styles.formSectionTitle}>Approximate age</Text><Text style={styles.ageValue}>{props.age} years</Text></View><View style={styles.stepperControl}><Pressable accessibilityRole="button" onPress={() => props.onAge(Math.max(0, props.age - 1))} style={styles.stepperButton}><Ionicons name="remove" size={20} color={colors.primary} /></Pressable><Pressable accessibilityRole="button" onPress={() => props.onAge(Math.min(20, props.age + 1))} style={styles.stepperButton}><Ionicons name="add" size={20} color={colors.primary} /></Pressable></View></View>
+        <View style={styles.ageBlock}>
+          <View style={styles.ageHeader}>
+            <Text style={styles.formSectionTitle}>Approximate age</Text>
+            <Text selectable style={styles.ageValue} numberOfLines={1} adjustsFontSizeToFit accessibilityLiveRegion="polite">{formatAge(props.ageYears, props.ageMonths)}</Text>
+          </View>
+          <AgeStepper label="Years" unit={props.ageYears === 1 ? 'year' : 'years'} value={props.ageYears} max={AGE_MAX_YEARS} onChange={props.onAgeYears} />
+          <AgeStepper label="Months" unit={props.ageMonths === 1 ? 'month' : 'months'} value={props.ageMonths} max={AGE_MAX_MONTHS} onChange={props.onAgeMonths} />
+        </View>
       </Card>
       <Card style={styles.formCard}>
         <Text style={styles.formSectionTitle}>Location & ownership</Text>
@@ -461,7 +473,7 @@ function ProcessingStep(props: ProcessingProps) {
   );
 }
 
-interface SuccessSummary { animalType: AnimalType; breed: string; sex: Sex; age: number; village: string; stateName: string; captures: number }
+interface SuccessSummary { animalType: AnimalType; breed: string; sex: Sex; ageYears: number; ageMonths: number; village: string; stateName: string; captures: number }
 
 function SuccessStep({ result, summary, cropUri, isFarmer, onProfile, onIdentify, onRegisterAnother }: { result: RegisterResult; summary: SuccessSummary; cropUri: string | null; isFarmer: boolean; onProfile: () => void; onIdentify: () => void; onRegisterAnother: () => void }) {
   const queued = result.queued;
@@ -477,9 +489,43 @@ function SuccessStep({ result, summary, cropUri, isFarmer, onProfile, onIdentify
         {result.score !== null ? <Text style={styles.successDisclaimer}>1:N best similarity {result.score.toFixed(3)} across {result.templatesSearched ?? 0} templates · {summary.captures} templates stored · {ENGINE_MODEL}</Text> : null}
         {result.duplicate ? <Text style={styles.successDisclaimer}>Uncertain similarity to {result.match?.in_scope ? formatMoozzleId(result.match.moozzle_id) : 'an existing animal'} — sent for manual review instead of being merged.</Text> : null}
       </View>
-      <Card style={styles.summaryCard}><CaptureImage uri={cropUri} label="MUZZLE" size={92} /><View style={styles.summaryGrid}><SummaryItem label="Species" value={summary.animalType} /><SummaryItem label="Breed" value={summary.breed} /><SummaryItem label="Sex" value={summary.sex} /><SummaryItem label="Age" value={`${summary.age} yrs`} /><SummaryItem label="Location" value={`${summary.village}, ${summary.stateName}`} /><SummaryItem label="Frames" value={`${summary.captures} accepted`} /></View></Card>
+      <Card style={styles.summaryCard}><CaptureImage uri={cropUri} label="MUZZLE" size={92} /><View style={styles.summaryGrid}><SummaryItem label="Species" value={summary.animalType} /><SummaryItem label="Breed" value={summary.breed} /><SummaryItem label="Sex" value={summary.sex} /><SummaryItem label="Age" value={formatAge(summary.ageYears, summary.ageMonths)} /><SummaryItem label="Location" value={`${summary.village}, ${summary.stateName}`} /><SummaryItem label="Frames" value={`${summary.captures} accepted`} /></View></Card>
       {!queued ? <PrimaryButton label="VIEW ANIMAL PROFILE" icon="document-text-outline" onPress={onProfile} /> : null}
       <View style={styles.buttonRow}><PrimaryButton label="IDENTIFY AGAIN" onPress={onIdentify} variant="outline" style={styles.halfButton} /><PrimaryButton label="REGISTER ANOTHER" onPress={onRegisterAnother} variant="soft" style={styles.halfButton} /></View>
+    </View>
+  );
+}
+
+interface AgeStepperProps {
+  label: string;
+  unit: string;
+  value: number;
+  max: number;
+  onChange: (value: number) => void;
+}
+
+function AgeStepper({ label, unit, value, max, onChange }: AgeStepperProps) {
+  const canDecrease = value > 0;
+  const canIncrease = value < max;
+  const decrease = useCallback(() => onChange(Math.max(0, value - 1)), [onChange, value]);
+  const increase = useCallback(() => onChange(Math.min(max, value + 1)), [max, onChange, value]);
+  return (
+    <View style={styles.ageStepperRow}>
+      <View style={styles.ageStepperLabelWrap}>
+        <Text style={styles.ageStepperLabel}>{label}</Text>
+        <Text style={styles.ageStepperHint}>0–{max}</Text>
+      </View>
+      <View style={styles.stepperControl}>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Decrease ${label.toLowerCase()}`} accessibilityState={{ disabled: !canDecrease }} disabled={!canDecrease} onPress={decrease} style={[styles.stepperButton, !canDecrease && styles.stepperButtonDisabled]}>
+          <Ionicons name="remove" size={20} color={canDecrease ? colors.primary : colors.muted} />
+        </Pressable>
+        <View style={styles.ageStepperValueBox} accessibilityLabel={`${value} ${unit}`}>
+          <Text style={styles.ageStepperValue}>{value}</Text>
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Increase ${label.toLowerCase()}`} accessibilityState={{ disabled: !canIncrease }} disabled={!canIncrease} onPress={increase} style={[styles.stepperButton, !canIncrease && styles.stepperButtonDisabled]}>
+          <Ionicons name="add" size={20} color={canIncrease ? colors.primary : colors.muted} />
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -515,8 +561,16 @@ const styles = StyleSheet.create({
   optionRow: { flexDirection: 'row', gap: 9 },
   horizontalOptions: { flexGrow: 0 },
   horizontalOptionContent: { gap: 8, paddingRight: 10 },
-  ageRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 14 },
-  ageValue: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 22, marginTop: 3 },
+  ageBlock: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 14, gap: 10 },
+  ageHeader: { gap: 3 },
+  ageStepperRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 12, borderCurve: 'continuous', backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border },
+  ageStepperLabelWrap: { flexShrink: 1, gap: 1 },
+  ageStepperLabel: { color: colors.text, fontFamily: Fonts.semiBold, fontSize: 14 },
+  ageStepperHint: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 11 },
+  ageStepperValueBox: { minWidth: 40, alignItems: 'center', justifyContent: 'center' },
+  ageStepperValue: { color: colors.text, fontFamily: Fonts.bold, fontSize: 18, fontVariant: ['tabular-nums'] },
+  stepperButtonDisabled: { opacity: 0.45 },
+  ageValue: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 22 },
   stepperControl: { flexDirection: 'row', gap: 9 },
   stepperButton: { width: 44, height: 44, borderRadius: 10, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
   fieldGrid: { gap: 12 },

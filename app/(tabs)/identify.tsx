@@ -9,6 +9,7 @@ import { AnimalPhoto, Card, colors, DataGate, formatMoozzleId, Pill, PrimaryButt
 import { Fonts } from '@/constants/Typography';
 import { analyzeMuzzle, identifyMuzzle, requestScanReview } from '@/lib/biometric/engine';
 import { ENGINE_MODEL } from '@/lib/biometric/features';
+import { formatAgeShort } from '@/lib/age';
 import { allows, usesTechnicalLanguage } from '@/lib/rbac';
 import { useAppStore } from '@/store/useAppStore';
 import { logAudit, useBovineData, useSession } from '@/store/useBovineStore';
@@ -277,7 +278,7 @@ function ResultView(props: ResultProps) {
             <View style={styles.flex}><Text style={styles.kicker}>MOOZZLE ID</Text><Text selectable style={styles.resultId}>{top.in_scope ? formatMoozzleId(top.moozzle_id) : top.moozzle_id}</Text></View>
             {top.in_scope ? <Pressable accessibilityRole="button" accessibilityLabel="Copy MOOZZLE ID" onPress={() => props.onCopy(top.moozzle_id)} style={styles.copy}><Ionicons name={props.copied ? 'checkmark' : 'copy-outline'} size={18} color={colors.primary} /><Text style={styles.copyText}>{props.copied ? 'Copied' : 'Copy'}</Text></Pressable> : null}
           </View>
-          <Text style={styles.summaryText}>{top.in_scope ? `${capital(top.species)} · ${top.breed} · ${capital(top.sex ?? '')} · ${top.age_years} yrs · ${top.farm_name || top.village}` : `${capital(top.species)} · registered outside your authorised scope. Details are withheld; contact the owning organisation.`}</Text>
+          <Text style={styles.summaryText}>{top.in_scope ? `${capital(top.species)} · ${top.breed} · ${capital(top.sex ?? '')} · ${formatAgeShort(top.age_years, top.age_months)} · ${top.farm_name || top.village}` : `${capital(top.species)} · registered outside your authorised scope. Details are withheld; contact the owning organisation.`}</Text>
           <View style={styles.compare}>
             <CaptureImage uri={props.probeUri} label="THIS SCAN" size={132} />
             <Ionicons name="swap-horizontal" size={20} color={colors.muted} />

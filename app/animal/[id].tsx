@@ -8,6 +8,7 @@ import { CaptureImage } from '@/components/biometric-ui';
 import { FormSheet, SERVICE_FORMS, type FieldSpec, type FormSpec, type FormSubmit } from '@/components/record-forms';
 import { AnimalPhoto, approvalTone, Card, colors, DataGate, EmptyState, ErrorState, formatMoozzleId, Pill, PrimaryButton } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
+import { formatAge } from '@/lib/age';
 import { allows, canRequestService, canWriteService, LIMITED_HEALTH_TITLES, type Role, type ServiceKind } from '@/lib/rbac';
 import { supabase } from '@/lib/supabase';
 import { useAsyncResource } from '@/lib/use-async-resource';
@@ -212,7 +213,7 @@ function AnimalProfileContent() {
           <FormSheet
             visible
             heading="Request a correction"
-            specs={[{ title: 'Correction', fields: [{ key: 'note', label: 'What is incorrect?', required: true, multiline: true }, { key: 'breed', label: 'Correct breed (optional)' }, { key: 'age_years', label: 'Correct age in years (optional)', keyboard: 'numeric' }, { key: 'village', label: 'Correct village (optional)' }] }]}
+            specs={[{ title: 'Correction', fields: [{ key: 'note', label: 'What is incorrect?', required: true, multiline: true }, { key: 'breed', label: 'Correct breed (optional)' }, { key: 'age_years', label: 'Correct age – years (optional)', keyboard: 'numeric' }, { key: 'age_months', label: 'Correct age – extra months, 0-11 (optional)', keyboard: 'numeric' }, { key: 'village', label: 'Correct village (optional)' }] }]}
             submitLabel="Send Request"
             confirmText="The permanent MOOZZLE ID and biometric template cannot be changed. An administrator reviews other corrections."
             onClose={() => setSheet(null)}
@@ -400,7 +401,7 @@ function IdentityTab({ animal, role, canReview, canRetire, retireLabel, canTrans
         {animal.reference_image_path ? <CaptureImage path={animal.reference_image_path} label="MUZZLE" size={92} /> : <AnimalPhoto animal={animal} size={92} />}
         <View style={styles.flex}>
           <Text style={styles.heroTitle}>{animal.breed} {animal.animal_type}</Text>
-          <Text style={styles.heroMeta}>{animal.sex} · {animal.age_years} years</Text>
+          <Text style={styles.heroMeta}>{animal.sex} · {formatAge(animal.age_years, animal.age_months)}</Text>
           <View style={styles.pills}>
             <Pill label={animal.current_status} tone={animal.current_status === 'Active' ? 'green' : 'slate'} />
             <Pill label={`Biometric: ${animal.biometric_status}`} tone={animal.biometric_status === 'Enrolled' ? 'blue' : 'amber'} />
@@ -491,7 +492,7 @@ function DocumentsTab({ animal, policies }: { animal: Animal; policies: string[]
   const certificate = [
     'MOOZZLE — Certificate of Biometric Registration',
     `MOOZZLE ID: ${formatMoozzleId(animal.moozzle_id)}`,
-    `Animal: ${animal.breed} ${animal.animal_type}, ${animal.sex}, ${animal.age_years} yrs`,
+    `Animal: ${animal.breed} ${animal.animal_type}, ${animal.sex}, ${formatAge(animal.age_years, animal.age_months)}`,
     `Farm: ${animal.farm_name || '—'} · ${[animal.village, animal.district, animal.state].filter(Boolean).join(', ')}`,
     `Registered: ${new Date(animal.registration_date).toLocaleDateString()} · Status: ${animal.approval_status}`,
     'One Muzzle. One Identity. One Digital Record.',
