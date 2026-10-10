@@ -4,7 +4,7 @@ import { Redirect, router } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BiometricScanIcon, colors, LogoMark, tr } from '@/components/moozzle-ui';
+import { BiometricScanIcon, BrandWordmark, colors, tr } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
 import { DEMO_ACCOUNTS, DEMO_MODE, DEMO_PASSWORD } from '@/lib/demo';
 import { canOpen, DESTINATION_ROUTES, primaryTabs, ROLE_EXPERIENCE, type Destination, type Role } from '@/lib/rbac';
@@ -48,9 +48,8 @@ export function AppHeader() {
     <View style={styles.header}>
       <View style={styles.headerTop}>
         <View style={styles.brandRow}>
-          <LogoMark compact />
           <View style={styles.brandCopy}>
-            <Text style={styles.brandName}>MOOZZLE</Text>
+            <BrandWordmark width={124} color="#10192B" />
             <View style={styles.onlineRow}>
               <View style={[styles.dot, !online && styles.dotOffline]} />
               <Text numberOfLines={1} style={[styles.onlineText, !online && styles.onlineTextOffline]}>{tr(language, online ? 'online' : 'offline')}</Text>
@@ -282,8 +281,7 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10, gap: 10, backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 },
-  brandCopy: { flex: 1, minWidth: 0 },
-  brandName: { color: colors.primaryDark, fontFamily: Fonts.bold, fontSize: 21, letterSpacing: 0.4 },
+  brandCopy: { flex: 1, minWidth: 0, gap: 3 },
   onlineRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.primary },
   dotOffline: { backgroundColor: colors.warning },

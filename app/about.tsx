@@ -4,6 +4,7 @@ import { useCallback } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import {
   AppScreen,
+  BrandWordmark,
   Card,
   colors,
   PageHeader,
@@ -50,8 +51,7 @@ function AboutContent() {
       <PageHeader eyebrow="System guide" title="About MOOZZLE" onBack={handleBack} />
       <View style={styles.content}>
         <Card style={styles.brandCard}>
-          <View style={styles.brandMark}><Ionicons name="finger-print-outline" size={30} color={colors.surface} /></View>
-          <Text style={styles.brandName}>MOOZZLE</Text>
+          <BrandWordmark width={260} />
           <Text style={styles.tagline}>One Muzzle. One Identity. One Digital Record.</Text>
           <Text style={styles.brandDescription}>A bovine biometric identification concept for cattle and buffalo field operations.</Text>
         </Card>
@@ -117,8 +117,6 @@ function SecurityRow({ icon, title, text }: { icon: keyof typeof Ionicons.glyphM
 const styles = StyleSheet.create({
   content: { gap: 14, paddingBottom: 24 },
   brandCard: { alignItems: 'center', backgroundColor: '#123A2A', borderColor: '#123A2A', paddingVertical: 25, gap: 7 },
-  brandMark: { width: 65, height: 65, borderRadius: 33, backgroundColor: colors.primary, borderWidth: 3, borderColor: '#86C79A', alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
-  brandName: { color: colors.surface, fontFamily: Fonts.bold, fontSize: 29, letterSpacing: 1.4 },
   tagline: { color: '#BDECCB', fontFamily: Fonts.semiBold, fontSize: 13, textAlign: 'center' },
   brandDescription: { color: '#D2E9DB', fontFamily: Fonts.regular, fontSize: 12, lineHeight: 18, textAlign: 'center' },
   eyebrow: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 10, letterSpacing: 1.1, textTransform: 'uppercase' },

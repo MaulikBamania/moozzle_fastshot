@@ -228,12 +228,29 @@ export function ErrorState({ message, onRetry, secondaryLabel, onSecondary }: { 
   );
 }
 
+const LOGO_EMBLEM = require('../assets/images/moozzle-emblem.png');
+const LOGO_WORDMARK = require('../assets/images/moozzle-wordmark.png');
+const WORDMARK_RATIO = 1400 / 406;
+
+/** Official MOOZZLE emblem (cow + fingerprint infinity mark) on a brand-dark disc. */
 export function LogoMark({ compact = false }: { compact?: boolean }) {
   return (
-    <View style={[styles.logoMark, compact && styles.logoMarkCompact]}>
-      <Ionicons name="finger-print-outline" size={compact ? 23 : 31} color={colors.surface} />
-      {!compact && <Text style={styles.logoMarkText}>M</Text>}
+    <View style={[styles.logoMark, compact && styles.logoMarkCompact]} accessibilityRole="image" accessibilityLabel="MOOZZLE logo">
+      <Image source={LOGO_EMBLEM} contentFit="contain" style={compact ? styles.logoEmblemCompact : styles.logoEmblem} />
     </View>
+  );
+}
+
+/** Official MOOZZLE wordmark. White artwork; pass `color` to tint it for light surfaces. */
+export function BrandWordmark({ width, color }: { width: number; color?: string }) {
+  return (
+    <Image
+      source={LOGO_WORDMARK}
+      contentFit="contain"
+      tintColor={color}
+      accessibilityLabel="MOOZZLE — Bovine Muzzle Biometric Identification"
+      style={{ width, height: width / WORDMARK_RATIO }}
+    />
   );
 }
 
@@ -411,9 +428,10 @@ const styles = StyleSheet.create({
   errorTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 18 },
   appHeader: { minHeight: 88, paddingHorizontal: 14, paddingTop: 6, flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   brandRow: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  logoMark: { width: 52, height: 52, borderRadius: 27, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: colors.primary },
+  logoMark: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#10192B', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.primary },
   logoMarkCompact: { width: 44, height: 44, borderRadius: 22, borderWidth: 0 },
-  logoMarkText: { color: colors.surface, fontFamily: Fonts.bold, fontSize: 13, position: 'absolute', bottom: 8 },
+  logoEmblem: { width: 48, height: 48 },
+  logoEmblemCompact: { width: 34, height: 34 },
   brandCopy: { flex: 1, minWidth: 0, gap: 1 },
   brandName: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 23, letterSpacing: 0.2 },
   brandSubtitle: { color: '#526A84', fontFamily: Fonts.medium, fontSize: 9, lineHeight: 11, letterSpacing: -0.35, flexShrink: 1 },

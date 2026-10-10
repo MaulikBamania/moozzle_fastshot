@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, LogoMark } from '@/components/moozzle-ui';
+import { BrandWordmark, colors } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
 import { useAppStore } from '@/store/useAppStore';
 import type { Language } from '@/store/types';
@@ -30,10 +30,8 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
           <Image source={heroPhoto} contentFit="cover" style={StyleSheet.absoluteFill} accessibilityLabel="Gir cow in the field" />
           <View style={styles.heroShade} />
           <View style={styles.brandRow}>
-            <LogoMark compact />
-            <View>
-              <Text style={styles.brandName}>MOOZZLE</Text>
-              <Text style={styles.brandSubtitle}>Bovine Muzzle Biometric Identification</Text>
+            <View style={styles.brandLogo}>
+              <BrandWordmark width={200} />
             </View>
             <LanguageSelector />
           </View>
@@ -111,8 +109,7 @@ const styles = StyleSheet.create({
   langItemActive: { backgroundColor: 'rgba(255,255,255,0.3)' },
   langText: { color: '#D1FAE5', fontFamily: Fonts.semiBold, fontSize: 12 },
   langTextActive: { color: colors.surface, fontFamily: Fonts.bold },
-  brandName: { color: colors.surface, fontFamily: Fonts.bold, fontSize: 22, letterSpacing: 0.4 },
-  brandSubtitle: { color: '#C9E8D3', fontFamily: Fonts.medium, fontSize: 11 },
+  brandLogo: { flex: 1, minWidth: 0 },
   heroCopy: { gap: 14, marginTop: 28 },
   heroTitle: { color: colors.surface, fontFamily: Fonts.bold, fontSize: 30, lineHeight: 36, letterSpacing: -0.4 },
   heroPoints: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

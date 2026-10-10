@@ -14,7 +14,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#10192b"
+        "backgroundColor": "#10192B"
       },
       "edgeToEdgeEnabled": true,
       "versionCode": 2
@@ -30,7 +30,7 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "imageWidth": 260,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
