@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/translated-text';
 import { go, TabShell } from '@/components/app-chrome';
 import { Card, colors, DataGate, Pill } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';

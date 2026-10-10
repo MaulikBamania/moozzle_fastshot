@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '@/components/translated-text';
 import { StackScreen, go } from '@/components/app-chrome';
 import { FormSheet } from '@/components/record-forms';
 import { Card, colors, DataGate, Pill, PrimaryButton } from '@/components/moozzle-ui';

@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '@/components/translated-text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, PrimaryButton } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';

@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '@/components/translated-text';
 import { StackScreen } from '@/components/app-chrome';
 import { FormSheet } from '@/components/record-forms';
 import { Card, colors, DataGate, EmptyState, formatMoozzleId, Pill, PrimaryButton } from '@/components/moozzle-ui';

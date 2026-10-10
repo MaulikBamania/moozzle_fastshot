@@ -1,7 +1,8 @@
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/translated-text';
 import { StackScreen } from '@/components/app-chrome';
 import { Card, colors, DataGate, EmptyState, OptionChip, Pill, PrimaryButton, TextField } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';

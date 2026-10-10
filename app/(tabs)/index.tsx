@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/translated-text';
 import { go, TabShell, useIsWide } from '@/components/app-chrome';
 import { AnimalPhoto, Card, colors, DataGate, formatMoozzleId, LogoMark, Pill, PrimaryButton, tr } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';

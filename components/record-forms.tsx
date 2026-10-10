@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/translated-text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, OptionChip, PrimaryButton, TextField } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';

@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { Text } from '@/components/translated-text';
 import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg';
 import { errorText } from '@/components/biometric-ui';
 import { Card, colors, OptionChip, PrimaryButton, TextField } from '@/components/moozzle-ui';

@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet } from 'react-native';
+import { Text } from '@/components/translated-text';
 import { StackScreen, go } from '@/components/app-chrome';
 import { Card, colors, DataGate, PrimaryButton, TextField } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/translated-text';
 import { StackScreen } from '@/components/app-chrome';
 import { FormSheet } from '@/components/record-forms';
 import { Card, colors, DataGate, OptionChip, Pill, PrimaryButton } from '@/components/moozzle-ui';

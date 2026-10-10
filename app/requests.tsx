@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '@/components/translated-text';
 import { StackScreen } from '@/components/app-chrome';
 import { FormSheet } from '@/components/record-forms';
 import { Card, colors, DataGate, EmptyState, formatMoozzleId, OptionChip, Pill, PrimaryButton } from '@/components/moozzle-ui';
