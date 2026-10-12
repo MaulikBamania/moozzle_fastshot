@@ -31,6 +31,7 @@ function SessionBridge({ children }: { children: React.ReactNode }) {
     if (!isInitializing) setActiveUser(userId);
   }, [isInitializing, userId]);
 
+  // Overlay (rather than replace) the navigator so routes stay mounted for auth redirects.
   return (
     <>
       {children}
@@ -49,7 +50,9 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (loaded || error) {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch((err: unknown) => {
+        console.error("Failed to hide native splash screen", err);
+      });
     }
   }, [loaded, error]);
 

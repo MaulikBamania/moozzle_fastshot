@@ -7,6 +7,11 @@
     "icon": "./assets/images/icon.png",
     "scheme": "fastshot-d14295cd-7a19-4e90-a3ea-49a50086cf94",
     "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
@@ -31,9 +36,9 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 300,
+          "imageWidth": 280,
           "resizeMode": "contain",
-          "backgroundColor": "#FFFFFF"
+          "backgroundColor": "#ffffff"
         }
       ],
       "@react-native-community/datetimepicker",
