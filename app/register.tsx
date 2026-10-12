@@ -33,6 +33,7 @@ import {
   describeAgeGroup,
   formatCoordinate,
   formatLocalDateTime,
+  isMaleOnlySpecies,
   pregnancyAllowed,
   productionAllowed,
   SPECIES_OPTIONS,
@@ -54,6 +55,7 @@ type DetailField = 'species' | 'breed' | 'ageGroup' | 'dairy' | 'societyName' | 
 type DetailErrors = Partial<Record<DetailField, string>>;
 
 function productionLockReason(type: AnimalType | null, sex: Sex, group: AgeGroup | null): string {
+  if (type === 'Bull') return 'Set to NA: bulls do not produce milk.';
   if (type === 'Bullock') return 'Set to NA: a bullock is a male draught animal.';
   if (sex === 'Male') return 'Set to NA: males do not produce milk.';
   if (group === 'CALF') return 'Set to NA: calves are not in milk production.';
@@ -61,6 +63,7 @@ function productionLockReason(type: AnimalType | null, sex: Sex, group: AgeGroup
 }
 
 function pregnancyLockReason(type: AnimalType | null, sex: Sex): string {
+  if (type === 'Bull') return 'Set to NA: bulls cannot be pregnant.';
   if (type === 'Bullock') return 'Set to NA: a bullock cannot be pregnant.';
   if (sex === 'Male') return 'Set to NA: males cannot be pregnant.';
   return 'Set to NA: calves cannot be pregnant.';
@@ -177,7 +180,7 @@ function RegisterContent() {
     setAnimalType(value);
     // Keep the breed only when it is valid for the new species; never assign one automatically.
     setBreed((current) => (breedsFor(value).includes(current) ? current : ''));
-    if (value === 'Bullock') setSex('Male');
+    if (isMaleOnlySpecies(value)) setSex('Male');
   }, []);
 
   const handleFrame = useCallback(async (uri: string) => {
@@ -446,7 +449,8 @@ interface DetailsProps {
 
 function DetailsStep(props: DetailsProps) {
   const { demographics: d, errors, gps } = props;
-  const isBullock = props.animalType === 'Bullock';
+  const maleOnly = isMaleOnlySpecies(props.animalType);
+  const sexHint = props.animalType === 'Bull' ? 'A bull is always male' : props.animalType === 'Bullock' ? 'A bullock is always male' : undefined;
   return (
     <View style={styles.stepContent}>
       <View><Text style={styles.eyebrow}>STEP 1 OF 4</Text><Text style={styles.pageTitle}>Animal Demographics</Text><Text style={styles.pageDescription}>Set the identity details before capturing the muzzle pattern. Fields marked * are mandatory.</Text></View>
@@ -465,8 +469,8 @@ function DetailsStep(props: DetailsProps) {
         </View>
         {/* Existing sex field — needed for the Status I / II rules */}
         <View style={styles.fieldBlock}>
-          <FieldLabel label="Sex" hint={isBullock ? 'A bullock is always male' : undefined} />
-          <View style={styles.optionRow}><OptionChip label="Female" selected={props.sex === 'Female'} onPress={() => props.onSex('Female')} disabled={isBullock} /><OptionChip label="Male" selected={props.sex === 'Male'} onPress={() => props.onSex('Male')} /></View>
+          <FieldLabel label="Sex" hint={sexHint} />
+          <View style={styles.optionRow}><OptionChip label="Female" selected={props.sex === 'Female'} onPress={() => props.onSex('Female')} disabled={maleOnly} /><OptionChip label="Male" selected={props.sex === 'Male'} onPress={() => props.onSex('Male')} /></View>
         </View>
         {/* 3. Age (existing years + months) */}
         <View style={styles.ageBlock}>

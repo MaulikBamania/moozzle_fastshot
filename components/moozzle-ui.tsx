@@ -54,9 +54,14 @@ function isHolsteinFriesian(breed: string | undefined): boolean {
   return normalized.startsWith('holstein') || normalized === 'hf' || normalized.startsWith('hf ');
 }
 
+const BUFFALO_BREED_NAMES = new Set(['murrah', 'mehsana', 'jaffarabadi', 'surti', 'nili ravi', 'bhadawari']);
+function isBuffaloBreed(breed: string | undefined): boolean {
+  return BUFFALO_BREED_NAMES.has(breed?.trim().toLowerCase().replace(/[^a-z]+/g, ' ').trim() ?? '');
+}
+
 /** Portrait breed photos are anchored to the top so the face stays inside square thumbnails. */
-function isPortraitBreedPhoto(animalType: Animal['animal_type'] | undefined, breed?: string): boolean {
-  return animalType !== 'Buffalo' && (isKankrej(breed) || isHolsteinFriesian(breed));
+function isPortraitBreedPhoto(breed?: string): boolean {
+  return isKankrej(breed) || isHolsteinFriesian(breed);
 }
 
 /** Legacy key → English source text; the phrase dictionary (lib/i18n) supplies HI / GU. */
@@ -106,9 +111,12 @@ export function formatMoozzleId(id: string): string {
 
 /** Breed/species artwork, used where an animal has no live-engine muzzle reference capture. */
 export function getAnimalImageSource(animalType: Animal['animal_type'] | undefined, breed?: string): number {
-  if (animalType !== 'Buffalo' && isKankrej(breed)) return kankrejPhoto;
-  if (animalType !== 'Buffalo' && isHolsteinFriesian(breed)) return hfPhoto;
-  return animalType === 'Buffalo' ? murrahPhoto : girPhoto;
+  // The breed decides first (HF / Kankrej / buffalo breeds), so a Murrah bull or an HF Cross
+  // crossbred never falls back to the Gir photo; species is the fallback for other breeds.
+  if (isHolsteinFriesian(breed)) return hfPhoto;
+  if (isKankrej(breed)) return kankrejPhoto;
+  if (isBuffaloBreed(breed) || animalType === 'Buffalo') return murrahPhoto;
+  return girPhoto;
 }
 
 export function AppScreen({ children, scroll = false }: { children: React.ReactNode; scroll?: boolean }) {
@@ -303,7 +311,7 @@ export function AnimalPhoto({ animal, size = 72, rounded = true, style }: { anim
       accessibilityLabel={animal ? `${animal.breed} ${animal.animal_type} reference` : 'Bovine reference'}
       source={getAnimalImageSource(animal?.animal_type, animal?.breed)}
       contentFit="cover"
-      contentPosition={isPortraitBreedPhoto(animal?.animal_type, animal?.breed) ? 'top' : 'center'}
+      contentPosition={isPortraitBreedPhoto(animal?.breed) ? 'top' : 'center'}
       style={[{ width: size, height: size, borderRadius: rounded ? 12 : 0, backgroundColor: colors.primaryLight }, style]}
     />
   );

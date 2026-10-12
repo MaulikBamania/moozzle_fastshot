@@ -9,6 +9,12 @@ Bullock | बैल | બળદ
 Crossbreed | संकर नस्ल | સંકર ઓલાદ
 Crossbred | संकर नस्ल | સંકર ઓલાદ
 Bull | साँड | આખલો
+A bull is always male | साँड हमेशा नर होता है | આખલો હંમેશાં નર હોય છે
+Set to NA: bulls do not produce milk. | NA पर सेट: साँड दूध नहीं देते। | NA પર સેટ: આખલા દૂધ આપતા નથી.
+Set to NA: bulls cannot be pregnant. | NA पर सेट: साँड गर्भवती नहीं हो सकते। | NA પર સેટ: આખલા ગાભણા ન હોઈ શકે.
+A bull or bullock is always male; set sex to Male. | साँड या बैल हमेशा नर होता है; लिंग नर चुनें। | આખલો અથવા બળદ હંમેશાં નર હોય છે; જાતિ નર પસંદ કરો.
+Choose the bovine species (Cattle, Buffalo, Crossbred, Bull or Bullock). | गोवंश प्रजाति चुनें (गाय, भैंस, संकर नस्ल, साँड या बैल)। | ગોવંશ પ્રજાતિ પસંદ કરો (ગાય, ભેંસ, સંકર ઓલાદ, આખલો અથવા બળદ).
+Status II must be NA for males, bulls, bullocks and calves. | नर, साँड, बैल और बछड़ों के लिए स्थिति II NA होनी चाहिए। | નર, આખલા, બળદ અને વાછરડાં માટે સ્થિતિ II NA હોવી જોઈએ.
 Animal category | पशु श्रेणी | પશુ શ્રેણી
 YES | हाँ (YES) | હા (YES)
 NO | नहीं (NO) | ના (NO)

@@ -1,8 +1,8 @@
 import type { Level, Permission, Role, ServiceKind } from '@/lib/rbac';
 
-export type AnimalType = 'Cattle' | 'Buffalo' | 'Bullock' | 'Crossbreed';
+export type AnimalType = 'Cattle' | 'Buffalo' | 'Crossbreed' | 'Bull' | 'Bullock';
 /** Database species codes, one per AnimalType. */
-export type SpeciesCode = 'cattle' | 'buffalo' | 'bullock' | 'crossbreed';
+export type SpeciesCode = 'cattle' | 'buffalo' | 'crossbreed' | 'bull' | 'bullock';
 export type Sex = 'Female' | 'Male';
 export type AgeGroup = 'CALF' | 'YOUNG' | 'ADULT';
 /** Status I — animal production status. */

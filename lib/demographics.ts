@@ -7,11 +7,17 @@ export interface SpeciesOption {
 }
 
 export const SPECIES_OPTIONS: readonly SpeciesOption[] = [
-  { type: 'Cattle', code: 'cattle', label: 'CATTLE' },
-  { type: 'Buffalo', code: 'buffalo', label: 'BUFFALO' },
-  { type: 'Bullock', code: 'bullock', label: 'BULLOCK' },
-  { type: 'Crossbreed', code: 'crossbreed', label: 'CROSSBREED' },
+  { type: 'Cattle', code: 'cattle', label: 'Cattle' },
+  { type: 'Buffalo', code: 'buffalo', label: 'Buffalo' },
+  { type: 'Crossbreed', code: 'crossbreed', label: 'Crossbred' },
+  { type: 'Bull', code: 'bull', label: 'Bull' },
+  { type: 'Bullock', code: 'bullock', label: 'Bullock' },
 ];
+
+/** Species that are male by definition: sex is locked to Male and Status I / II are NA. */
+export function isMaleOnlySpecies(type: AnimalType | null): boolean {
+  return type === 'Bull' || type === 'Bullock';
+}
 
 export function speciesCode(type: AnimalType): SpeciesCode {
   return SPECIES_OPTIONS.find((item) => item.type === type)?.code ?? 'cattle';
@@ -33,6 +39,8 @@ const BUFFALO_BREEDS = ['Murrah', 'Mehsana', 'Jaffarabadi', 'Surti', 'Nili-Ravi'
 const BULLOCK_BREEDS = ['Kankrej', 'Hariana', 'Tharparkar', 'Gir', 'Rathi', 'Red Sindhi', 'Sahiwal', 'Other'];
 /** Dairy crossbreeds from the existing list. */
 const CROSSBREED_BREEDS = ['HF Cross', 'Jersey Cross', 'Other'];
+/** Breeding bulls can be of any bovine breed (cattle, crossbred or buffalo). */
+const BULL_BREEDS = [...CATTLE_BREEDS.filter((b) => b !== 'Other'), ...BUFFALO_BREEDS.filter((b) => b !== 'Other'), 'Other'];
 
 export function breedsFor(type: AnimalType | null): string[] {
   switch (type) {
@@ -40,6 +48,8 @@ export function breedsFor(type: AnimalType | null): string[] {
       return CATTLE_BREEDS;
     case 'Buffalo':
       return BUFFALO_BREEDS;
+    case 'Bull':
+      return BULL_BREEDS;
     case 'Bullock':
       return BULLOCK_BREEDS;
     case 'Crossbreed':
@@ -92,12 +102,12 @@ export function describeAgeGroup(group: AgeGroup, thresholds: AgeThresholds): st
 
 /** Mirrors public.production_allowed(): only adult females of a dairy species can be MILK or DRY. */
 export function productionAllowed(type: AnimalType | null, sex: Sex, group: AgeGroup | null): boolean {
-  return type !== null && type !== 'Bullock' && sex === 'Female' && group === 'ADULT';
+  return type !== null && !isMaleOnlySpecies(type) && sex === 'Female' && group === 'ADULT';
 }
 
-/** Mirrors public.pregnancy_allowed(): males, bullocks and calves cannot be PREGNANT. */
+/** Mirrors public.pregnancy_allowed(): males, bulls, bullocks and calves cannot be PREGNANT. */
 export function pregnancyAllowed(type: AnimalType | null, sex: Sex, group: AgeGroup | null): boolean {
-  return type !== null && type !== 'Bullock' && sex === 'Female' && (group === 'YOUNG' || group === 'ADULT');
+  return type !== null && !isMaleOnlySpecies(type) && sex === 'Female' && (group === 'YOUNG' || group === 'ADULT');
 }
 
 export const PRODUCTION_OPTIONS: readonly ProductionStatus[] = ['DRY', 'MILK', 'NA'];
@@ -137,13 +147,13 @@ function isCrossbreedBreed(breed: string | undefined): boolean {
 
 /**
  * Derives the category strictly from the stored species, breed and sex, in precedence order:
- * Bullock (species BULLOCK) → Bull (intact male of any other species) → Crossbred (species
+ * Bullock (species BULLOCK) → Bull (species BULL, or any other male) → Crossbred (species
  * CROSSBREED or a crossbreed breed) → Buffalo (species BUFFALO) → Cattle (species CATTLE).
  */
 export function animalCategory(animal: { animal_type: AnimalType; breed: string; sex: Sex }): AnimalCategory {
   if (animal.animal_type === 'Bullock') return 'Bullock';
-  if (animal.sex === 'Male') return 'Bull';
-  if (animal.animal_type === 'Crossbreed' || (animal.animal_type === 'Cattle' && isCrossbreedBreed(animal.breed))) return 'Crossbred';
+  if (animal.animal_type === 'Bull' || animal.sex === 'Male') return 'Bull';
+  if (animal.animal_type === 'Crossbreed' || isCrossbreedBreed(animal.breed)) return 'Crossbred';
   if (animal.animal_type === 'Buffalo') return 'Buffalo';
   return 'Cattle';
 }
