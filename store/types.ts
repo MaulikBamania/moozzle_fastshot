@@ -1,7 +1,26 @@
 import type { Level, Permission, Role, ServiceKind } from '@/lib/rbac';
 
-export type AnimalType = 'Cattle' | 'Buffalo';
+export type AnimalType = 'Cattle' | 'Buffalo' | 'Bullock' | 'Crossbreed';
+/** Database species codes, one per AnimalType. */
+export type SpeciesCode = 'cattle' | 'buffalo' | 'bullock' | 'crossbreed';
 export type Sex = 'Female' | 'Male';
+export type AgeGroup = 'CALF' | 'YOUNG' | 'ADULT';
+/** Status I — animal production status. */
+export type ProductionStatus = 'DRY' | 'MILK' | 'NA';
+/** Status II — pregnancy status. */
+export type PregnancyStatus = 'PREGNANT' | 'NON-PREGNANT' | 'NA';
+export type YesNo = 'yes' | 'no';
+
+/** A device GPS fix as reported by the operating system's location services. */
+export interface GpsFix {
+  latitude: number;
+  longitude: number;
+  /** Reported horizontal accuracy in metres; null when the OS does not report it. */
+  accuracy: number | null;
+  /** ISO UTC timestamp of when the fix was obtained. */
+  capturedAt: string;
+  mocked: boolean;
+}
 export type BiometricStatus = 'Enrolled' | 'Pending Quality' | 'Retired';
 export type AnimalStatus = 'Active' | 'Retired';
 export type ApprovalStatus = 'Draft' | 'Submitted' | 'Pending Review' | 'Approved' | 'Rejected' | 'Corrected' | 'Retired';
@@ -13,12 +32,20 @@ export interface AnimalRow {
   id: string;
   user_id: string;
   moozzle_id: string;
-  species: 'cattle' | 'buffalo';
+  species: SpeciesCode;
   breed: string;
   sex: 'female' | 'male';
   age_years: number;
   /** 0-11; older rows default to 0. */
   age_months?: number;
+  /** Server-derived from age + species thresholds. */
+  age_group?: AgeGroup | null;
+  /** Null on records registered before Status I existed. */
+  production_status?: ProductionStatus | null;
+  pregnancy_status?: PregnancyStatus | null;
+  /** Device clock at registration (stored UTC) and its local UTC offset. */
+  device_registered_at?: string | null;
+  device_utc_offset_minutes?: number | null;
   farm_name: string;
   village: string;
   district: string;
@@ -43,6 +70,15 @@ export interface OwnerRow {
   animal_id: string;
   owner_name: string;
   owner_phone: string;
+  /** Null on records registered before the dairy-society question existed. */
+  dairy_society_member?: boolean | null;
+  society_name?: string | null;
+  society_code?: string | null;
+  member_code?: string | null;
+  gps_latitude?: number | null;
+  gps_longitude?: number | null;
+  gps_accuracy_m?: number | null;
+  gps_captured_at?: string | null;
 }
 
 export interface ServiceRecordRow {
@@ -183,6 +219,18 @@ export interface Animal {
   age_years: number;
   /** Months beyond whole years (0-11). */
   age_months: number;
+  age_group: AgeGroup | null;
+  production_status: ProductionStatus | null;
+  pregnancy_status: PregnancyStatus | null;
+  /** Device-local registration instant (ISO) and the device's UTC offset in minutes at that time. */
+  device_registered_at: string | null;
+  device_utc_offset_minutes: number | null;
+  /** Owner-scoped: null when not visible to the active role or not recorded. */
+  dairy_society_member: boolean | null;
+  society_name: string;
+  society_code: string;
+  member_code: string;
+  gps: { latitude: number; longitude: number; accuracy: number | null; capturedAt: string | null } | null;
   /** Empty when the active role is not authorised to see owner personal data. */
   owner_name: string;
   owner_phone: string;
@@ -233,12 +281,27 @@ export interface LivestockServiceRecord {
 export interface RegisterPayload {
   id: string;
   moozzle_id: string;
-  species: 'cattle' | 'buffalo';
+  species: SpeciesCode;
   breed: string;
   sex: 'female' | 'male';
   age_years: number;
   /** Optional so offline items queued before months existed still sync. */
   age_months?: number;
+  /** Fields below are optional only so items queued before this release still parse; the server requires them. */
+  age_group?: AgeGroup;
+  production_status?: ProductionStatus;
+  pregnancy_status?: PregnancyStatus;
+  dairy_society?: YesNo;
+  society_name?: string | null;
+  society_code?: string | null;
+  member_code?: string | null;
+  gps_latitude?: number;
+  gps_longitude?: number;
+  gps_accuracy_m?: number | null;
+  gps_captured_at?: string;
+  gps_mocked?: boolean;
+  device_registered_at?: string;
+  device_utc_offset_minutes?: number;
   owner_name: string;
   owner_phone: string;
   farm_id: string | null;
@@ -369,7 +432,7 @@ export interface MatchCandidate {
   animal_id?: string;
   in_scope: boolean;
   moozzle_id: string;
-  species: 'cattle' | 'buffalo';
+  species: SpeciesCode;
   breed?: string;
   sex?: 'female' | 'male';
   age_years?: number;

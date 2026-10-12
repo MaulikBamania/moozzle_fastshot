@@ -10,6 +10,7 @@ import { FormSheet, SERVICE_FORMS, type FieldSpec, type FormSpec, type FormSubmi
 import { AnimalPhoto, approvalTone, Card, colors, DataGate, EmptyState, ErrorState, formatMoozzleId, Pill, PrimaryButton } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
 import { formatAge } from '@/lib/age';
+import { formatCoordinate, formatLocalDateTime } from '@/lib/demographics';
 import { allows, canRequestService, canWriteService, LIMITED_HEALTH_TITLES, type Role, type ServiceKind } from '@/lib/rbac';
 import { supabase } from '@/lib/supabase';
 import { useAsyncResource } from '@/lib/use-async-resource';
@@ -413,18 +414,33 @@ function IdentityTab({ animal, role, canReview, canRetire, retireLabel, canTrans
       {animal.duplicate_of ? <View style={styles.warn}><Ionicons name="copy-outline" size={18} color={colors.danger} /><Text style={styles.warnText}>Possible duplicate identity. Sent for manual review — records are never merged automatically.</Text></View> : null}
       {animal.review_note ? <View style={styles.info}><Text style={styles.infoText}>Reviewer note: {animal.review_note}</Text></View> : null}
       <Card style={styles.details}>
-        <Detail label="Species" value={animal.animal_type} />
+        <Detail label="Species" value={animal.animal_type.toUpperCase()} />
+        <Detail label="Age group" value={animal.age_group ?? 'Not recorded'} />
+        <Detail label="Status I — Production" value={animal.production_status ?? 'Not recorded'} />
+        <Detail label="Status II — Pregnancy" value={animal.pregnancy_status ?? 'Not recorded'} />
         <Detail label="Farm" value={animal.farm_name} />
         <Detail label="Location" value={[animal.village, animal.district, animal.state].filter(Boolean).join(', ')} />
-        <Detail label="Registered" value={new Date(animal.registration_date).toLocaleDateString()} />
+        <Detail label="Registered" value={registeredLabel(animal)} />
         <Detail label="Muzzle captures" value={`${animal.captured_images_count} images · ${animal.reference_image_path ? '256-D live-engine templates' : 'legacy record without live-engine templates'} (embeddings never shown)`} />
         {animal.owner_visible ? (
           <>
             <Detail label="Owner" value={animal.owner_name} />
             <Detail label="Owner mobile" value={animal.owner_phone} />
+            <Detail label="Dairy society member" value={animal.dairy_society_member === null ? 'Not recorded' : animal.dairy_society_member ? 'YES' : 'NO'} />
+            {animal.dairy_society_member ? (
+              <>
+                <Detail label="Society name" value={animal.society_name} />
+                <Detail label="Society code" value={animal.society_code} />
+                <Detail label="Member code" value={animal.member_code} />
+              </>
+            ) : null}
+            <Detail
+              label="Registration GPS"
+              value={animal.gps ? `${formatCoordinate(animal.gps.latitude, 'N', 'S')}, ${formatCoordinate(animal.gps.longitude, 'E', 'W')}${animal.gps.accuracy !== null ? ` · ±${Math.round(animal.gps.accuracy)} m` : ''}${animal.gps.capturedAt ? ` · ${formatLocalDateTime(animal.gps.capturedAt)}` : ''}` : 'Not recorded'}
+            />
           </>
         ) : (
-          <View style={styles.locked}><Ionicons name="lock-closed-outline" size={14} color={colors.muted} /><Text style={styles.lockedText}>Owner personal details are not shared with the {role} role.</Text></View>
+          <View style={styles.locked}><Ionicons name="lock-closed-outline" size={14} color={colors.muted} /><Text style={styles.lockedText}>Owner personal, dairy society and GPS details are not shared with the {role} role.</Text></View>
         )}
         {animal.retire_reason ? <Detail label="Retired" value={`${animal.retire_reason}${animal.retire_date ? ` · ${new Date(animal.retire_date).toLocaleDateString()}` : ''}`} /> : null}
       </Card>
@@ -621,3 +637,10 @@ const styles = StyleSheet.create({
   activityMeta: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 12 },
   activityDetails: { color: colors.text, fontFamily: Fonts.regular, fontSize: 12, marginTop: 2 },
 });
+
+/** Device-local registration time when recorded, plus the server timestamp date. */
+function registeredLabel(animal: Animal): string {
+  const server = new Date(animal.registration_date).toLocaleDateString();
+  if (!animal.device_registered_at) return server;
+  return `${formatLocalDateTime(animal.device_registered_at)} (device) · server ${server}`;
+}

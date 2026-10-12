@@ -12,7 +12,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { loadBovineData, useBovineData, useBovineStore, useSession } from '@/store/useBovineStore';
 import type { Animal } from '@/store/types';
 
-type SpeciesFilter = 'All' | 'Cattle' | 'Buffalo';
+type SpeciesFilter = 'All' | 'Cattle' | 'Buffalo' | 'Bullock' | 'Crossbreed';
 type StatusFilter = 'All' | 'Active' | 'Pending' | 'Drafts' | 'Retired';
 
 export default function RecordsScreen() {
@@ -95,7 +95,7 @@ function RecordsContent() {
           {!canRegister ? <Text style={styles.disabledNote}>Your role cannot register animals.</Text> : null}
           <TextField label="Search" value={query} onChangeText={setQuery} placeholder="MOOZZLE ID, breed, farm or village" autoCapitalize="none" />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={styles.chips}>
-            {(['All', 'Cattle', 'Buffalo'] as SpeciesFilter[]).map((item) => <OptionChip key={item} label={item} selected={species === item} onPress={() => setSpecies(item)} />)}
+            {(['All', 'Cattle', 'Buffalo', 'Bullock', 'Crossbreed'] as SpeciesFilter[]).map((item) => <OptionChip key={item} label={item} selected={species === item} onPress={() => setSpecies(item)} />)}
             <View style={styles.divider} />
             {(['All', 'Active', 'Pending', 'Drafts', 'Retired'] as StatusFilter[]).map((item) => <OptionChip key={`s-${item}`} label={item === 'All' ? 'Any status' : item} selected={status === item} onPress={() => setStatus(item)} tone="blue" />)}
           </ScrollView>

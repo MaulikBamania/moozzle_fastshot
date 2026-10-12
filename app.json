@@ -54,6 +54,12 @@
         {
           "photosPermission": "MOOZZLE lets you upload a muzzle photo for biometric identification."
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "MOOZZLE records the GPS location of every animal registration so the record can be verified in the field."
+        }
       ]
     ],
     "experiments": {

@@ -318,9 +318,9 @@ export function TextField({ label, style, ...props }: TextInputProps & { label: 
   );
 }
 
-export function OptionChip({ label, selected, onPress, tone = 'green' }: { label: string; selected: boolean; onPress: () => void; tone?: 'green' | 'blue' | 'red' }) {
+export function OptionChip({ label, selected, onPress, tone = 'green', disabled = false }: { label: string; selected: boolean; onPress: () => void; tone?: 'green' | 'blue' | 'red'; disabled?: boolean }) {
   return (
-    <Pressable accessibilityRole="button" accessibilityState={{ selected }} onPress={onPress} style={[styles.optionChip, selected && (tone === 'blue' ? styles.optionChipSelectedBlue : tone === 'red' ? styles.optionChipSelectedRed : styles.optionChipSelected)]}>
+    <Pressable accessibilityRole="button" accessibilityState={{ selected, disabled }} disabled={disabled} onPress={onPress} style={[styles.optionChip, selected && (tone === 'blue' ? styles.optionChipSelectedBlue : tone === 'red' ? styles.optionChipSelectedRed : styles.optionChipSelected), disabled && !selected && styles.optionChipDisabled]}>
       <Text style={[styles.optionChipText, selected && styles.optionChipTextSelected]}>{label}</Text>
     </Pressable>
   );
@@ -451,6 +451,7 @@ const styles = StyleSheet.create({
   fieldLabel: { color: colors.text, fontFamily: Fonts.semiBold, fontSize: 13 },
   textField: { minHeight: 48, borderWidth: 1, borderColor: colors.border, borderRadius: 10, backgroundColor: colors.surface, color: colors.text, paddingHorizontal: 13, fontFamily: Fonts.regular, fontSize: 15 },
   optionChip: { minHeight: 44, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  optionChipDisabled: { opacity: 0.4 },
   optionChipSelected: { backgroundColor: colors.primaryLight, borderColor: colors.accent },
   optionChipSelectedBlue: { backgroundColor: colors.blueLight, borderColor: colors.blue },
   optionChipSelectedRed: { backgroundColor: colors.dangerLight, borderColor: colors.danger },

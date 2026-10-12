@@ -3,6 +3,7 @@ import * as Crypto from 'expo-crypto';
 import { useMemo } from 'react';
 import { create } from 'zustand';
 import { NO_PERMISSIONS, PERMISSIONS, isLevel, isRole, ROLE_EXPERIENCE, type PermissionMap, type Role } from '@/lib/rbac';
+import { animalTypeFromCode, deviceUtcOffsetMinutes, speciesCode } from '@/lib/demographics';
 import { supabase } from '@/lib/supabase';
 import { useAppStore } from './useAppStore';
 import { isOnlineNow, useConnectivity } from './useConnectivity';
@@ -11,13 +12,17 @@ import type {
   QualityMetrics,
   Animal,
   AnimalRow,
+  AgeGroup,
   AnimalType,
   FarmRow,
+  GpsFix,
   LivestockServiceRecord,
   NotificationRow,
   OrganisationRow,
   OwnerRow,
   PolicyRow,
+  PregnancyStatus,
+  ProductionStatus,
   ProfileRow,
   QueuedOperation,
   RegisterPayload,
@@ -31,6 +36,7 @@ import type {
   SyncConflict,
   SyncSummary,
   UserRoleRow,
+  YesNo,
 } from './types';
 
 export type DataPhase = 'idle' | 'loading' | 'ready' | 'error' | 'offline';
@@ -58,11 +64,24 @@ interface BovineState {
 }
 
 export interface NewAnimalInput {
+  /** Stable per registration attempt so retries and sync replays never create a second record. */
+  registrationId: string;
+  provisionalMoozzleId: string;
   animalType: AnimalType;
   breed: string;
   sex: Sex;
   ageYears: number;
   ageMonths: number;
+  ageGroup: AgeGroup;
+  productionStatus: ProductionStatus;
+  pregnancyStatus: PregnancyStatus;
+  dairySociety: YesNo;
+  societyName: string;
+  societyCode: string;
+  memberCode: string;
+  gps: GpsFix;
+  /** Device clock at the moment the user submitted the registration. */
+  registeredAt: Date;
   ownerName: string;
   ownerPhone: string;
   farmId: string | null;
@@ -203,7 +222,7 @@ export async function loadBovineData(): Promise<void> {
       selectAll<OrganisationRow>(supabase.from('organisations').select('id, name, org_type, district, state').order('name')),
       selectAll<FarmRow>(supabase.from('farms').select('id, organisation_id, name, village, district, state').order('name')),
       selectAll<AnimalRow>(supabase.from('animals').select('*').order('created_at', { ascending: false })),
-      selectAll<OwnerRow>(supabase.from('animal_owners').select('animal_id, owner_name, owner_phone')),
+      selectAll<OwnerRow>(supabase.from('animal_owners').select('animal_id, owner_name, owner_phone, dairy_society_member, society_name, society_code, member_code, gps_latitude, gps_longitude, gps_accuracy_m, gps_captured_at')),
       selectAll<ServiceRecordRow>(supabase.from('service_records').select('*').order('date', { ascending: false }).order('created_at', { ascending: false })),
       selectAll<PolicyRow>(supabase.from('insurance_policies').select('*').order('created_at', { ascending: false })),
       selectAll<RequestRow>(supabase.from('record_requests').select('*').order('created_at', { ascending: false })),
@@ -320,13 +339,28 @@ export async function endPrivilegedAccess(): Promise<void> {
 
 function toRegisterPayload(input: NewAnimalInput): RegisterPayload {
   return {
-    id: Crypto.randomUUID(),
-    moozzle_id: generateMoozzleId(),
-    species: input.animalType === 'Cattle' ? 'cattle' : 'buffalo',
+    id: input.registrationId,
+    moozzle_id: input.provisionalMoozzleId,
+    species: speciesCode(input.animalType),
     breed: input.breed,
     sex: input.sex === 'Female' ? 'female' : 'male',
     age_years: input.ageYears,
     age_months: input.ageMonths,
+    age_group: input.ageGroup,
+    production_status: input.productionStatus,
+    pregnancy_status: input.pregnancyStatus,
+    // Dairy details are submitted only for members; values kept in the form for NO are dropped here.
+    dairy_society: input.dairySociety,
+    society_name: input.dairySociety === 'yes' ? input.societyName.trim() : null,
+    society_code: input.dairySociety === 'yes' ? input.societyCode.trim() : null,
+    member_code: input.dairySociety === 'yes' ? input.memberCode.trim() : null,
+    gps_latitude: input.gps.latitude,
+    gps_longitude: input.gps.longitude,
+    gps_accuracy_m: input.gps.accuracy,
+    gps_captured_at: input.gps.capturedAt,
+    gps_mocked: input.gps.mocked,
+    device_registered_at: input.registeredAt.toISOString(),
+    device_utc_offset_minutes: deviceUtcOffsetMinutes(input.registeredAt),
     owner_name: input.ownerName.trim(),
     owner_phone: input.ownerPhone.trim(),
     farm_id: input.farmId,
@@ -362,7 +396,11 @@ export async function createAnimal(input: NewAnimalInput): Promise<RegisterResul
   bump();
   const payload = toRegisterPayload(input);
   const queue = (): RegisterResult => {
-    useAppStore.getState().enqueue({ kind: 'animal', opId: Crypto.randomUUID(), userId, role, queuedAt: new Date().toISOString(), payload: { ...payload, source: 'offline-queue' } });
+    // A repeated tap or retry for the same registration must not queue it twice.
+    const alreadyQueued = useAppStore.getState().syncQueue.some((op) => op.kind === 'animal' && op.payload.id === payload.id);
+    if (!alreadyQueued) {
+      useAppStore.getState().enqueue({ kind: 'animal', opId: Crypto.randomUUID(), userId, role, queuedAt: new Date().toISOString(), payload: { ...payload, source: 'offline-queue' } });
+    }
     bump();
     return { id: payload.id, moozzleId: payload.moozzle_id, approvalStatus: input.saveAsDraft ? 'Draft' : 'Queued', duplicate: false, queued: true, blocked: false, match: null, score: null, templatesSearched: null };
   };
@@ -614,11 +652,24 @@ function toAnimal(row: AnimalRow, owner: OwnerRow | undefined, pending = false):
   return {
     id: row.id,
     moozzle_id: row.moozzle_id,
-    animal_type: row.species === 'buffalo' ? 'Buffalo' : 'Cattle',
+    animal_type: animalTypeFromCode(row.species),
     breed: row.breed,
     sex: row.sex === 'male' ? 'Male' : 'Female',
     age_years: row.age_years,
     age_months: row.age_months ?? 0,
+    age_group: row.age_group ?? null,
+    production_status: row.production_status ?? null,
+    pregnancy_status: row.pregnancy_status ?? null,
+    device_registered_at: row.device_registered_at ?? null,
+    device_utc_offset_minutes: row.device_utc_offset_minutes ?? null,
+    dairy_society_member: owner?.dairy_society_member ?? null,
+    society_name: owner?.society_name ?? '',
+    society_code: owner?.society_code ?? '',
+    member_code: owner?.member_code ?? '',
+    gps:
+      typeof owner?.gps_latitude === 'number' && typeof owner?.gps_longitude === 'number'
+        ? { latitude: owner.gps_latitude, longitude: owner.gps_longitude, accuracy: owner.gps_accuracy_m ?? null, capturedAt: owner.gps_captured_at ?? null }
+        : null,
     owner_name: owner?.owner_name ?? '',
     owner_phone: owner?.owner_phone ?? '',
     owner_visible: !!owner,
@@ -658,6 +709,11 @@ function queuedAnimal(op: Extract<QueuedOperation, { kind: 'animal' }>): Animal 
       sex: p.sex,
       age_years: p.age_years,
       age_months: p.age_months ?? 0,
+      age_group: p.age_group ?? null,
+      production_status: p.production_status ?? null,
+      pregnancy_status: p.pregnancy_status ?? null,
+      device_registered_at: p.device_registered_at ?? null,
+      device_utc_offset_minutes: p.device_utc_offset_minutes ?? null,
       farm_name: p.farm_name,
       village: p.village,
       district: p.district,
@@ -676,7 +732,19 @@ function queuedAnimal(op: Extract<QueuedOperation, { kind: 'animal' }>): Animal 
       created_at: op.queuedAt,
       updated_at: op.queuedAt,
     },
-    { animal_id: p.id, owner_name: p.owner_name, owner_phone: p.owner_phone },
+    {
+      animal_id: p.id,
+      owner_name: p.owner_name,
+      owner_phone: p.owner_phone,
+      dairy_society_member: p.dairy_society ? p.dairy_society === 'yes' : null,
+      society_name: p.society_name ?? null,
+      society_code: p.society_code ?? null,
+      member_code: p.member_code ?? null,
+      gps_latitude: p.gps_latitude ?? null,
+      gps_longitude: p.gps_longitude ?? null,
+      gps_accuracy_m: p.gps_accuracy_m ?? null,
+      gps_captured_at: p.gps_captured_at ?? null,
+    },
     true
   );
 }

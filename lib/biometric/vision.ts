@@ -1,13 +1,15 @@
 /**
  * AI Gateway vision call for muzzle detection.
  *
- * The image travels as a base64 data URL inside a plain JSON body. No FormData, Blob or file-URI
- * part is built: Android's native fetch throws "Unsupported FormDataPart implementation" for those.
+ * The image travels as a base64 data URL inside a plain JSON body (or a hand-built text multipart
+ * fallback). No FormData, Blob or file-URI part is ever built: Expo's native fetch on Android throws
+ * "Unsupported FormDataPart implementation" for those.
  */
-import { analyzeImage } from '@fastshot/ai';
+import * as Crypto from 'expo-crypto';
 import { BiometricError } from './errors';
 
 const ANALYZE_JSON_PATH = '/v1/analyze/image';
+const ANALYZE_MULTIPART_PATH = '/v1/analyze/image/upload';
 const VISION_MODEL = 'gpt-4o';
 const REQUEST_TIMEOUT_MS = 60000;
 const MAX_ATTEMPTS = 3;
@@ -133,14 +135,45 @@ export async function analyzeBase64Image(request: VisionRequest): Promise<string
 }
 
 /**
- * Fallback for gateways without the JSON route. Passing a data URL makes the SDK send only string
- * fields (no file part), which Android's native fetch encodes without FormDataPart errors.
+ * Fallback for gateways without the JSON route. The multipart body is assembled by hand as one string
+ * of text fields (the image travels as a data-URL field), so no FormData object ever reaches fetch.
+ * Expo's native fetch on Android throws "Unsupported FormDataPart implementation" for FormData parts.
  */
 async function analyzeViaDataUrl({ base64, mimeType, prompt }: VisionRequest): Promise<string> {
+  const { apiUrl, projectId, appKey } = gatewayConfig();
+  const boundary = `----MoozzleBoundary${Crypto.randomUUID().replace(/-/g, '')}`;
+  const fields: Record<string, string> = {
+    image_url: `data:${mimeType};base64,${base64}`,
+    project_id: projectId,
+    prompt,
+    model: VISION_MODEL,
+    inject_branding: 'false',
+  };
+  const body = `${Object.entries(fields)
+    .map(([name, value]) => `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`)
+    .join('')}--${boundary}--\r\n`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    return await analyzeImage({ imageUrl: `data:${mimeType};base64,${base64}`, prompt, injectBranding: false });
+    const response = await fetch(`${apiUrl}${ANALYZE_MULTIPART_PATH}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        Accept: 'text/plain, application/json',
+        ...(appKey ? { 'X-Newell-App-Key': appKey } : {}),
+      },
+      body,
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    if (response.status === 403) throw new BiometricError('AI muzzle detection rejected this app’s project key. Contact your administrator.');
+    if (!response.ok) throw new Error(`AI muzzle detection failed (HTTP ${response.status}): ${serverMessage(text)}`);
+    return text.replace(/^ +/, '').trim();
   } catch (error) {
-    console.error('Gateway data-URL muzzle detection failed', error);
+    console.error('Gateway multipart muzzle detection failed', error);
+    if (error instanceof Error && error.name === 'AbortError') throw new BiometricError('AI muzzle detection timed out. Check your connection and retry.');
     throw friendly(error);
+  } finally {
+    clearTimeout(timer);
   }
 }

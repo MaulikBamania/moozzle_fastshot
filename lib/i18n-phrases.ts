@@ -2,6 +2,7 @@ import { AUTH } from '@/lib/phrases/auth';
 import { BIOMETRIC } from '@/lib/phrases/biometric';
 import { COMMON } from '@/lib/phrases/common';
 import { DASHBOARD } from '@/lib/phrases/dashboard';
+import { DEMOGRAPHICS } from '@/lib/phrases/demographics';
 import { EXTRA } from '@/lib/phrases/extra';
 import { RECORDS } from '@/lib/phrases/records';
 import { WORKSPACE } from '@/lib/phrases/workspace';
@@ -21,4 +22,4 @@ function parse(block: string): Phrase[] {
   return rows;
 }
 
-export const PHRASES: readonly Phrase[] = [COMMON, DASHBOARD, BIOMETRIC, RECORDS, WORKSPACE, AUTH, EXTRA].flatMap(parse);
+export const PHRASES: readonly Phrase[] = [COMMON, DASHBOARD, BIOMETRIC, RECORDS, WORKSPACE, AUTH, EXTRA, DEMOGRAPHICS].flatMap(parse);

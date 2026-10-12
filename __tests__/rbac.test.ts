@@ -6,7 +6,8 @@ const perms = defaultPermissions;
 
 function animal(overrides: Partial<Animal> = {}): Animal {
   return {
-    id: 'a1', moozzle_id: '482731905614', animal_type: 'Cattle', breed: 'Gir', sex: 'Female', age_years: 5, age_months: 0, owner_name: '', owner_phone: '', owner_visible: false,
+    id: 'a1', moozzle_id: '482731905614', animal_type: 'Cattle', breed: 'Gir', sex: 'Female', age_years: 5, age_months: 0, age_group: 'ADULT', production_status: null, pregnancy_status: null, device_registered_at: null, device_utc_offset_minutes: null,
+    dairy_society_member: null, society_name: '', society_code: '', member_code: '', gps: null, owner_name: '', owner_phone: '', owner_visible: false,
     owner_user_id: null, farm_id: 'f1', farm_name: 'Patel Dairy Farm', organisation_id: 'o1', village: 'Himmatnagar', district: 'Sabarkantha', state: 'Gujarat',
     registration_date: '2026-01-01', biometric_status: 'Enrolled', current_status: 'Active', approval_status: 'Approved', duplicate_of: null, review_note: null,
     captured_images_count: 4, reference_image_path: null, created_by: 'u1', created_at: '2026-01-01', updated_at: '2026-01-01', ...overrides,
