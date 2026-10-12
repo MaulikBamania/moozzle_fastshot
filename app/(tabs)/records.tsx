@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '@/components/translated-text';
 import { go, TabShell } from '@/components/app-chrome';
-import { AnimalDemographicCard, AnimalOverview } from '@/components/animal-overview';
+import { AnimalDemographicCard } from '@/components/animal-overview';
 import { colors, DataGate, EmptyState, OptionChip, PrimaryButton, TextField, tr } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
 import { ANIMAL_CATEGORIES, type AnimalCategory, animalCategory } from '@/lib/demographics';
@@ -35,6 +35,15 @@ function RecordsContent() {
   const language = useAppStore((state) => state.language);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<CategoryFilter>('All');
+  const { species } = useLocalSearchParams<{ species?: string }>();
+
+  // A species tapped in the Home overview arrives as a route param; apply it once, then clear it so a repeat tap re-applies.
+  useEffect(() => {
+    if (!species) return;
+    const match = CATEGORY_FILTERS.find((item) => item === species);
+    if (match) setCategory(match);
+    router.setParams({ species: undefined });
+  }, [species]);
   const [status, setStatus] = useState<StatusFilter>('All');
   const [breed, setBreed] = useState('All');
   const canRegister = allows(session.permissions.register_animal);
@@ -94,7 +103,6 @@ function RecordsContent() {
               <Ionicons name="chevron-forward" size={16} color={colors.muted} />
             </Pressable>
           ) : null}
-          {animals.length > 0 ? <AnimalOverview animals={animals} category={category} onCategory={setCategory} /> : null}
           <PrimaryButton label="+ Register Bovine" onPress={() => router.push('/register')} disabled={!canRegister} variant={canRegister ? 'primary' : 'soft'} />
           {!canRegister ? <Text style={styles.disabledNote}>Your role cannot register animals.</Text> : null}
           <TextField label="Search" value={query} onChangeText={setQuery} placeholder="MOOZZLE ID, breed, farm or village" autoCapitalize="none" />

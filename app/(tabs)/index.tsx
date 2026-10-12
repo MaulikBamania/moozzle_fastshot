@@ -3,9 +3,11 @@ import { router } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '@/components/translated-text';
+import { AnimalOverview } from '@/components/animal-overview';
 import { go, TabShell, useIsWide } from '@/components/app-chrome';
 import { AnimalPhoto, Card, colors, DataGate, formatMoozzleId, LogoMark, Pill, PrimaryButton, tr } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
+import type { AnimalCategory } from '@/lib/demographics';
 import { buildDashboard, type ApiLogRow, type DashCard, type PlatformOverview, type ResearchRow } from '@/lib/dashboard';
 import { canOpen, ROLE_EXPERIENCE, type Role } from '@/lib/rbac';
 import { supabase } from '@/lib/supabase';
@@ -173,6 +175,10 @@ function Dashboard() {
   const alerts = useMemo(() => notifications.filter((item) => !item.read).slice(0, 3), [notifications]);
   const recent = useMemo(() => animals.filter((animal) => animal.approval_status !== 'Draft').slice(0, 3), [animals]);
   const farmer = role === 'Farmer';
+  const showAnimalOverview = animals.length > 0 && canOpen('records', role, session.permissions);
+  const openSpecies = useCallback((value: 'All' | AnimalCategory) => {
+    router.push({ pathname: '/(tabs)/records', params: value === 'All' ? {} : { species: value } });
+  }, []);
 
   const onRefresh = useCallback(() => {
     void reloadExtras();
@@ -212,6 +218,7 @@ function Dashboard() {
       ) : null}
 
       <Text style={styles.sectionTitle}>{tr(language, 'overview')}</Text>
+      {showAnimalOverview ? <AnimalOverview animals={animals} category="All" onCategory={openSpecies} /> : null}
       <View style={styles.grid}>
         {cards.map((card) => (
           <Pressable key={card.label} accessibilityRole="button" accessibilityLabel={`${card.label}: ${card.value}`} onPress={() => go(card.to)} style={({ pressed }) => [styles.statCard, wide ? styles.statCardWide : styles.statCardNarrow, farmer && styles.statCardFarmer, pressed && styles.pressed]}>
