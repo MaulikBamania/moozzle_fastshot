@@ -7,13 +7,16 @@ import { go, TabShell } from '@/components/app-chrome';
 import { AnimalPhoto, approvalTone, colors, DataGate, EmptyState, formatMoozzleId, OptionChip, Pill, PrimaryButton, TextField, tr } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
 import { formatAgeShort } from '@/lib/age';
+import { ANIMAL_CATEGORIES, type AnimalCategory, animalCategory } from '@/lib/demographics';
 import { allows } from '@/lib/rbac';
 import { useAppStore } from '@/store/useAppStore';
 import { loadBovineData, useBovineData, useBovineStore, useSession } from '@/store/useBovineStore';
 import type { Animal } from '@/store/types';
 
-type SpeciesFilter = 'All' | 'Cattle' | 'Buffalo' | 'Bullock' | 'Crossbreed';
+type CategoryFilter = 'All' | AnimalCategory;
 type StatusFilter = 'All' | 'Active' | 'Pending' | 'Drafts' | 'Retired';
+
+const CATEGORY_FILTERS: readonly CategoryFilter[] = ['All', ...ANIMAL_CATEGORIES];
 
 export default function RecordsScreen() {
   return (
@@ -31,7 +34,7 @@ function RecordsContent() {
   const policies = useBovineStore((state) => state.policyRows);
   const language = useAppStore((state) => state.language);
   const [query, setQuery] = useState('');
-  const [species, setSpecies] = useState<SpeciesFilter>('All');
+  const [category, setCategory] = useState<CategoryFilter>('All');
   const [status, setStatus] = useState<StatusFilter>('All');
   const [breed, setBreed] = useState('All');
   const canRegister = allows(session.permissions.register_animal);
@@ -42,7 +45,7 @@ function RecordsContent() {
   const filtered = useMemo(() => {
     const q = query.replace(/\s/g, '').toLowerCase();
     return animals.filter((animal) => {
-      if (species !== 'All' && animal.animal_type !== species) return false;
+      if (category !== 'All' && animalCategory(animal) !== category) return false;
       if (breed !== 'All' && animal.breed !== breed) return false;
       if (status === 'Active' && (animal.current_status !== 'Active' || animal.approval_status === 'Draft')) return false;
       if (status === 'Pending' && animal.approval_status !== 'Submitted' && animal.approval_status !== 'Pending Review') return false;
@@ -51,7 +54,7 @@ function RecordsContent() {
       if (!q) return true;
       return [animal.moozzle_id, animal.breed, animal.farm_name, animal.village, animal.district].some((value) => value.replace(/\s/g, '').toLowerCase().includes(q));
     });
-  }, [animals, breed, query, species, status]);
+  }, [animals, breed, category, query, status]);
 
   const openAnimal = useCallback((animal: Animal) => router.push(`/animal/${animal.moozzle_id}`), []);
   const onRefresh = useCallback(() => void loadBovineData(), []);
@@ -94,9 +97,10 @@ function RecordsContent() {
           <PrimaryButton label="+ Register Bovine" onPress={() => router.push('/register')} disabled={!canRegister} variant={canRegister ? 'primary' : 'soft'} />
           {!canRegister ? <Text style={styles.disabledNote}>Your role cannot register animals.</Text> : null}
           <TextField label="Search" value={query} onChangeText={setQuery} placeholder="MOOZZLE ID, breed, farm or village" autoCapitalize="none" />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityLabel="Animal category" style={styles.chipScroll} contentContainerStyle={styles.chips}>
+            {CATEGORY_FILTERS.map((item) => <OptionChip key={item} label={item} selected={category === item} onPress={() => setCategory(item)} />)}
+          </ScrollView>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={styles.chips}>
-            {(['All', 'Cattle', 'Buffalo', 'Bullock', 'Crossbreed'] as SpeciesFilter[]).map((item) => <OptionChip key={item} label={item} selected={species === item} onPress={() => setSpecies(item)} />)}
-            <View style={styles.divider} />
             {(['All', 'Active', 'Pending', 'Drafts', 'Retired'] as StatusFilter[]).map((item) => <OptionChip key={`s-${item}`} label={item === 'All' ? 'Any status' : item} selected={status === item} onPress={() => setStatus(item)} tone="blue" />)}
           </ScrollView>
           {breeds.length > 2 ? (
@@ -146,7 +150,6 @@ const styles = StyleSheet.create({
   disabledNote: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 12, marginTop: -6 },
   chipScroll: { flexGrow: 0 },
   chips: { gap: 8, paddingRight: 8, alignItems: 'center' },
-  divider: { width: 1, height: 26, backgroundColor: colors.border, marginHorizontal: 2 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 12 },
   rowId: { color: colors.text, fontFamily: Fonts.bold, fontSize: 16, fontVariant: ['tabular-nums'] },
   rowMeta: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 12, marginTop: 2 },

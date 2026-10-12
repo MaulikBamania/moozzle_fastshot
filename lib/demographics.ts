@@ -125,3 +125,25 @@ export function formatUtcOffset(minutes: number): string {
 export function deviceUtcOffsetMinutes(date: Date = new Date()): number {
   return -date.getTimezoneOffset();
 }
+
+/** My Animals display categories (display-only; records are never rewritten). */
+export type AnimalCategory = 'Cattle' | 'Buffalo' | 'Crossbred' | 'Bull' | 'Bullock';
+export const ANIMAL_CATEGORIES: readonly AnimalCategory[] = ['Cattle', 'Buffalo', 'Crossbred', 'Bull', 'Bullock'];
+
+/** Approved crossbreed breed names: "HF Cross", "Jersey Cross", "Holstein Friesian Cross", etc. */
+function isCrossbreedBreed(breed: string | undefined): boolean {
+  return /\bcross(bred|breed)?\b/i.test(breed ?? '');
+}
+
+/**
+ * Derives the category strictly from the stored species, breed and sex, in precedence order:
+ * Bullock (species BULLOCK) → Bull (intact male of any other species) → Crossbred (species
+ * CROSSBREED or a crossbreed breed) → Buffalo (species BUFFALO) → Cattle (species CATTLE).
+ */
+export function animalCategory(animal: { animal_type: AnimalType; breed: string; sex: Sex }): AnimalCategory {
+  if (animal.animal_type === 'Bullock') return 'Bullock';
+  if (animal.sex === 'Male') return 'Bull';
+  if (animal.animal_type === 'Crossbreed' || (animal.animal_type === 'Cattle' && isCrossbreedBreed(animal.breed))) return 'Crossbred';
+  if (animal.animal_type === 'Buffalo') return 'Buffalo';
+  return 'Cattle';
+}

@@ -737,7 +737,7 @@ const styles = StyleSheet.create({
   pageBody: { flex: 1 },
   // Stacked header: the cancel link and the title sit on separate rows so they can never collide,
   // whatever the viewport width or the phone's font scale.
-  topBar: { paddingHorizontal: 14, paddingTop: 4, paddingBottom: 12, gap: 2, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
+  topBar: { paddingHorizontal: 14, paddingTop: 6, paddingBottom: 14, gap: 6, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
   cancelButton: { minHeight: 44, alignSelf: 'flex-start', maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: -4, paddingRight: 8 },
   cancelText: { flexShrink: 1, color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 14 },
   topTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 22, lineHeight: 28 },

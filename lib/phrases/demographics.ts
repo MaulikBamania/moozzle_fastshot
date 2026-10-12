@@ -7,6 +7,9 @@ BULLOCK | बैल (BULLOCK) | બળદ (BULLOCK)
 CROSSBREED | संकर नस्ल (CROSSBREED) | સંકર ઓલાદ (CROSSBREED)
 Bullock | बैल | બળદ
 Crossbreed | संकर नस्ल | સંકર ઓલાદ
+Crossbred | संकर नस्ल | સંકર ઓલાદ
+Bull | साँड | આખલો
+Animal category | पशु श्रेणी | પશુ શ્રેણી
 YES | हाँ (YES) | હા (YES)
 NO | नहीं (NO) | ના (NO)
 DRY | सूखी (DRY) | વસૂકેલી (DRY)
