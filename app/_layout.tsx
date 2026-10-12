@@ -6,6 +6,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { BrandSplash } from "@/components/brand-splash";
 import { FontMap } from "@/constants/Typography";
 import { supabase } from "@/lib/supabase";
 import { logAudit, setActiveUser } from "@/store/useBovineStore";
@@ -30,7 +31,12 @@ function SessionBridge({ children }: { children: React.ReactNode }) {
     if (!isInitializing) setActiveUser(userId);
   }, [isInitializing, userId]);
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      {isInitializing ? <BrandSplash overlay /> : null}
+    </>
+  );
 }
 
 // Called by the auth SDK after a successful sign-in; the server derives the user and role.
@@ -48,7 +54,7 @@ export default function RootLayout() {
   }, [loaded, error]);
 
   if (!loaded && !error) {
-    return null;
+    return <BrandSplash />;
   }
 
   return (
