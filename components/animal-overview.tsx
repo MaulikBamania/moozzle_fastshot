@@ -1,6 +1,6 @@
-import { Ionicons } from '@expo/vector-icons';
-import { memo, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { memo, useCallback, useMemo, useState } from 'react';
+import { Platform, Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 import { Text } from '@/components/translated-text';
 import { AnimalPhoto, approvalTone, colors, formatMoozzleId, Pill } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
@@ -36,78 +36,142 @@ export function computeOverview(animals: readonly Animal[]): OverviewStats {
   return stats;
 }
 
-function Metric({ label, value, tone = 'slate', selected, onPress }: { label: string; value: number; tone?: Tone; selected?: boolean; onPress?: () => void }) {
-  const body = (
-    <View style={[styles.metric, selected && styles.metricSelected]}>
-      <Text style={[styles.metricValue, { color: TONE_COLOR[tone] }]}>{value}</Text>
-      <Text numberOfLines={1} style={styles.metricLabel}>{label}</Text>
+type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
+
+const SPECIES_STYLE: Record<AnimalCategory, { icon: IconName; tone: Tone }> = {
+  Cattle: { icon: 'cow', tone: 'green' },
+  Buffalo: { icon: 'cow', tone: 'slate' },
+  Crossbred: { icon: 'dna', tone: 'blue' },
+  Bull: { icon: 'gender-male', tone: 'red' },
+  Bullock: { icon: 'tractor', tone: 'amber' },
+};
+
+function share(value: number, total: number): string {
+  return total > 0 ? `${Math.round((value / total) * 100)}%` : '0%';
+}
+
+/** Large KPI tile: tinted icon chip, bold figure and a clear label. */
+function KpiTile({ icon, label, value, total, tone }: { icon: IconName; label: string; value: number; total: number; tone: Tone }) {
+  const palette = TONES[tone];
+  return (
+    <View style={styles.kpi} accessible accessibilityLabel={`${label}: ${value}`}>
+      <View style={styles.kpiTop}>
+        <View style={[styles.kpiIcon, { backgroundColor: palette.bg }]}>
+          <MaterialCommunityIcons name={icon} size={22} color={palette.fg} />
+        </View>
+        <Text style={[styles.kpiShare, { color: palette.fg }]}>{share(value, total)}</Text>
+      </View>
+      <Text selectable style={styles.kpiValue}>{value}</Text>
+      <Text numberOfLines={2} style={styles.kpiLabel}>{label}</Text>
     </View>
   );
-  if (!onPress) return <View style={styles.metricCell}>{body}</View>;
+}
+
+/** Tappable species tile that opens the records list filtered to that species. */
+function SpeciesTile({ species, value, selected, wide, onPress }: { species: AnimalCategory; value: number; selected: boolean; wide: boolean; onPress: (species: AnimalCategory) => void }) {
+  const { icon, tone } = SPECIES_STYLE[species];
+  const palette = TONES[tone];
   return (
-    <Pressable accessibilityRole="button" accessibilityState={{ selected }} accessibilityLabel={`${label}: ${value}`} onPress={onPress} style={styles.metricCell}>
-      {({ pressed }) => <View style={pressed && styles.pressed}>{body}</View>}
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={`${species}: ${value}`}
+      onPress={() => onPress(species)}
+      style={wide ? styles.speciesCellWide : styles.speciesCell}
+    >
+      {({ pressed }) => (
+        <View style={[styles.species, selected && styles.speciesSelected, pressed && styles.pressed]}>
+          <View style={[styles.speciesIcon, { backgroundColor: palette.bg }]}>
+            <MaterialCommunityIcons name={icon} size={24} color={palette.fg} />
+          </View>
+          <View style={styles.flex}>
+            <Text selectable style={styles.speciesValue}>{value}</Text>
+            <Text numberOfLines={1} style={styles.speciesLabel}>{species}</Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={20} color={colors.muted} />
+        </View>
+      )}
     </Pressable>
   );
 }
 
-function Group({ icon, title, children }: { icon: keyof typeof Ionicons.glyphMap; title: string; children: React.ReactNode }) {
+function Section({ icon, title, children }: { icon: IconName; title: string; children: React.ReactNode }) {
   return (
-    <View style={styles.group}>
-      <View style={styles.groupHead}>
-        <Ionicons name={icon} size={13} color={colors.muted} />
-        <Text style={styles.groupTitle}>{title}</Text>
+    <View style={styles.section}>
+      <View style={styles.sectionHead}>
+        <MaterialCommunityIcons name={icon} size={16} color={colors.primary} />
+        <Text style={styles.sectionTitle}>{title}</Text>
       </View>
-      <View style={styles.metricRow}>{children}</View>
+      {children}
     </View>
   );
 }
 
-/** Compact demographic summary of every animal in the user's scope (unfiltered). */
+/** Demographic summary of every animal in the user's scope (unfiltered). */
 export const AnimalOverview = memo(function AnimalOverview({ animals, category, onCategory }: { animals: readonly Animal[]; category: 'All' | AnimalCategory; onCategory: (value: 'All' | AnimalCategory) => void }) {
   const [open, setOpen] = useState(true);
   const stats = useMemo(() => computeOverview(animals), [animals]);
+  const toggleSpecies = useCallback((item: AnimalCategory) => onCategory(category === item ? 'All' : item), [category, onCategory]);
+  const lastIndex = ANIMAL_CATEGORIES.length - 1;
+  const oddCount = ANIMAL_CATEGORIES.length % 2 === 1;
 
   return (
     <View style={styles.card}>
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel="Toggle animal overview" onPress={() => setOpen((value) => !value)}>
         {({ pressed }) => (
-          <View style={[styles.head, pressed && styles.pressed]}>
-            <View style={styles.totalBadge}>
-              <Ionicons name="paw" size={18} color={colors.surface} />
+          <View style={[styles.hero, pressed && styles.pressed]}>
+            <View style={styles.heroBadge}>
+              <MaterialCommunityIcons name="paw" size={28} color={colors.surface} />
             </View>
             <View style={styles.flex}>
-              <Text style={styles.headLabel}>Total Animals</Text>
-              <Text selectable style={styles.headValue}>{stats.total}</Text>
+              <Text style={styles.heroLabel}>Total Animals</Text>
+              <Text selectable style={styles.heroValue}>{stats.total}</Text>
+              <Text numberOfLines={2} style={styles.heroSubtitle}>Animals registered in your records</Text>
             </View>
-            <Text style={styles.headHint}>{open ? 'Hide' : 'Details'}</Text>
-            <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.muted} />
+            <View style={styles.toggle}>
+              <Text style={styles.toggleText}>{open ? 'Hide' : 'Details'}</Text>
+              <MaterialCommunityIcons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.primary} />
+            </View>
           </View>
         )}
       </Pressable>
       {open ? (
         <View style={styles.body}>
-          <Group icon="git-branch-outline" title="Species">
-            {ANIMAL_CATEGORIES.map((item) => (
-              <Metric key={item} label={item} value={stats.species[item]} tone="green" selected={category === item} onPress={() => onCategory(category === item ? 'All' : item)} />
-            ))}
-          </Group>
-          <View style={styles.split}>
-            <Group icon="water-outline" title="Production">
-              <Metric label="Milk" value={stats.milk} tone="blue" />
-              <Metric label="Dry" value={stats.dry} tone="amber" />
-            </Group>
-            <Group icon="heart-outline" title="Pregnancy">
-              <Metric label="Pregnant" value={stats.pregnant} tone="red" />
-            </Group>
-            <Group icon="people-outline" title="Dairy Society">
-              <Metric label="Giving milk" value={stats.dairy} tone="green" />
-            </Group>
+          <Section icon="cow" title="Species">
+            <Text style={styles.hint}>Tap a species to view its animals</Text>
+            <View style={styles.speciesGrid}>
+              {ANIMAL_CATEGORIES.map((item, index) => (
+                <SpeciesTile key={item} species={item} value={stats.species[item]} selected={category === item} wide={oddCount && index === lastIndex} onPress={toggleSpecies} />
+              ))}
+            </View>
+          </Section>
+
+          <Section icon="water" title="Production">
+            <View style={styles.kpiRow}>
+              <KpiTile icon="water" label="Milk" value={stats.milk} total={stats.total} tone="blue" />
+              <KpiTile icon="water-off" label="Dry" value={stats.dry} total={stats.total} tone="amber" />
+            </View>
+          </Section>
+
+          <View style={styles.kpiRow}>
+            <View style={styles.flex}>
+              <Section icon="heart-pulse" title="Pregnancy">
+                <KpiTile icon="heart-pulse" label="Pregnant" value={stats.pregnant} total={stats.total} tone="red" />
+              </Section>
+            </View>
+            <View style={styles.flex}>
+              <Section icon="office-building" title="Dairy Society">
+                <KpiTile icon="office-building" label="Giving milk" value={stats.dairy} total={stats.total} tone="green" />
+              </Section>
+            </View>
           </View>
-          <Group icon="shield-checkmark-outline" title="Verification">
-            <Metric label="Submitted" value={stats.submitted} tone="amber" />
-            <Metric label="Approved" value={stats.approved} tone="green" />
-          </Group>
+
+          <Section icon="shield-check" title="Verification">
+            <View style={styles.kpiRow}>
+              <KpiTile icon="clock-outline" label="Submitted" value={stats.submitted} total={stats.total} tone="amber" />
+              <KpiTile icon="check-decagram" label="Approved" value={stats.approved} total={stats.total} tone="green" />
+            </View>
+          </Section>
         </View>
       ) : null}
     </View>
@@ -172,34 +236,47 @@ export const AnimalDemographicCard = memo(function AnimalDemographicCard({ anima
   );
 });
 
-const TONE_COLOR: Record<Tone, string> = {
-  green: colors.primary,
-  blue: colors.blue,
-  amber: colors.warning,
-  red: colors.danger,
-  slate: colors.text,
+const TONES: Record<Tone, { fg: string; bg: string }> = {
+  green: { fg: colors.primary, bg: colors.primaryLight },
+  blue: { fg: colors.blue, bg: colors.blueLight },
+  amber: { fg: colors.warning, bg: colors.warningLight },
+  red: { fg: colors.danger, bg: colors.dangerLight },
+  slate: { fg: '#334155', bg: colors.slateLight },
 };
+
+const CARD_SHADOW = Platform.select<ViewStyle>({ android: { elevation: 2 }, default: { boxShadow: '0 6px 18px rgba(15, 23, 42, 0.06)' } });
 
 const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   pressed: { opacity: 0.85 },
-  card: { backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
-  head: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, minHeight: 44 },
-  totalBadge: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  headLabel: { color: colors.muted, fontFamily: Fonts.semiBold, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6 },
-  headValue: { color: colors.text, fontFamily: Fonts.bold, fontSize: 24, fontVariant: ['tabular-nums'] },
-  headHint: { color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 13 },
-  body: { paddingHorizontal: 12, paddingBottom: 12, gap: 12, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12 },
-  split: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 16, rowGap: 12 },
-  group: { gap: 6, flexGrow: 1 },
-  groupHead: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  groupTitle: { color: colors.muted, fontFamily: Fonts.semiBold, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 },
-  metricRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  metricCell: { minWidth: 64, flexGrow: 1 },
-  metric: { minHeight: 44, borderRadius: 10, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10, paddingVertical: 6, alignItems: 'center', justifyContent: 'center' },
-  metricSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
-  metricValue: { fontFamily: Fonts.bold, fontSize: 17, fontVariant: ['tabular-nums'] },
-  metricLabel: { color: colors.muted, fontFamily: Fonts.medium, fontSize: 11, marginTop: 1 },
+  card: { backgroundColor: colors.surface, borderRadius: 20, borderCurve: 'continuous', borderWidth: 1, borderColor: colors.border, overflow: 'hidden', ...CARD_SHADOW },
+  hero: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 18, backgroundColor: colors.primaryLight, borderBottomWidth: 1, borderBottomColor: '#D1FAE5' },
+  heroBadge: { width: 56, height: 56, borderRadius: 16, borderCurve: 'continuous', backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  heroLabel: { color: colors.primaryDark, fontFamily: Fonts.semiBold, fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.8 },
+  heroValue: { color: colors.text, fontFamily: Fonts.bold, fontSize: 40, lineHeight: 46, fontVariant: ['tabular-nums'] },
+  heroSubtitle: { color: colors.muted, fontFamily: Fonts.medium, fontSize: 13 },
+  toggle: { flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 44, paddingHorizontal: 12, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: '#A7F3D0' },
+  toggleText: { color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 13 },
+  body: { padding: 16, gap: 22 },
+  section: { gap: 10 },
+  sectionHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  sectionTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 15 },
+  hint: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 12, marginTop: -4 },
+  speciesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  speciesCell: { flexBasis: '46%', flexGrow: 1 },
+  speciesCellWide: { flexBasis: '100%' },
+  species: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 72, padding: 12, borderRadius: 16, borderCurve: 'continuous', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  speciesSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  speciesIcon: { width: 44, height: 44, borderRadius: 12, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center' },
+  speciesValue: { color: colors.text, fontFamily: Fonts.bold, fontSize: 24, lineHeight: 28, fontVariant: ['tabular-nums'] },
+  speciesLabel: { color: colors.muted, fontFamily: Fonts.semiBold, fontSize: 13 },
+  kpiRow: { flexDirection: 'row', gap: 10 },
+  kpi: { flex: 1, minWidth: 0, gap: 4, padding: 14, borderRadius: 16, borderCurve: 'continuous', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background },
+  kpiTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+  kpiIcon: { width: 40, height: 40, borderRadius: 12, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center' },
+  kpiShare: { fontFamily: Fonts.semiBold, fontSize: 12, fontVariant: ['tabular-nums'] },
+  kpiValue: { color: colors.text, fontFamily: Fonts.bold, fontSize: 30, lineHeight: 36, fontVariant: ['tabular-nums'] },
+  kpiLabel: { color: colors.muted, fontFamily: Fonts.semiBold, fontSize: 13 },
   row: { backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 12, gap: 8 },
   rowTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   rowId: { color: colors.text, fontFamily: Fonts.bold, fontSize: 16, fontVariant: ['tabular-nums'] },
