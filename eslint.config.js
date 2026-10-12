@@ -92,6 +92,11 @@ module.exports = defineConfig([
     },
   },
   {
+    // `.web.ts(x)` modules are only bundled for the browser preview, never for Hermes.
+    files: ['**/*.web.{ts,tsx}'],
+    rules: { 'no-restricted-globals': 'off' },
+  },
+  {
     // React Three Fiber has its own intrinsic elements. Keep DOM attribute
     // validation, and accept these renderer properties only on their elements.
     files: ['examples/with-react-three-fiber/App.js'],

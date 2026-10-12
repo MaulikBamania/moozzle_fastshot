@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { Text } from '@/components/translated-text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CaptureImage } from '@/components/biometric-ui';
@@ -14,6 +14,8 @@ import { formatCoordinate, formatLocalDateTime } from '@/lib/demographics';
 import { allows, canRequestService, canWriteService, LIMITED_HEALTH_TITLES, type Role, type ServiceKind } from '@/lib/rbac';
 import { supabase } from '@/lib/supabase';
 import { useAsyncResource } from '@/lib/use-async-resource';
+import { certificateFileName, downloadCertificate } from '@/lib/certificate';
+import { useIsOnline } from '@/store/useConnectivity';
 import {
   addServiceRecord,
   createRequest,
@@ -357,7 +359,7 @@ function AnimalProfileContent() {
         {tab === 'operations' ? (
           <RecordList title="Daily Operations" records={byType('operations')} empty="No milk or feed records." canAdd={writeService('operations')} addLabel="Record Milk / Feed" onAdd={() => setSheet({ kind: 'service', service: 'operations' })} />
         ) : null}
-        {tab === 'documents' ? <DocumentsTab animal={animal} policies={animalPolicies.map((policy) => policy.policy_number)} /> : null}
+        {tab === 'documents' ? <DocumentsTab animal={animal} records={records} canViewHealth={access.health} policies={animalPolicies.map((policy) => policy.policy_number)} /> : null}
         {tab === 'activity' ? <ActivityTab moozzleId={animal.moozzle_id} /> : null}
       </ScrollView>
       {sheetView}
@@ -504,8 +506,41 @@ function RecordList({ title, records, empty, note, canAdd, addLabel, onAdd, canA
   );
 }
 
-function DocumentsTab({ animal, policies }: { animal: Animal; policies: string[] }) {
+function DocumentsTab({ animal, records, canViewHealth, policies }: { animal: Animal; records: LivestockServiceRecord[]; canViewHealth: boolean; policies: string[] }) {
   const [message, setMessage] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [pdfNotice, setPdfNotice] = useState<{ tone: 'green' | 'red'; text: string } | null>(null);
+  const session = useSession();
+  const online = useIsOnline();
+  const organisationName = useBovineStore((state) => state.organisations.find((item) => item.id === animal.organisation_id)?.name ?? null);
+  const download = useCallback(async () => {
+    setPdfNotice(null);
+    setGenerating(true);
+    try {
+      const outcome = await downloadCertificate({
+        animal,
+        records,
+        canViewHealth,
+        organisationName,
+        currentUser: { id: session.userId, name: session.name, role: session.role },
+        online,
+      });
+      const fileName = certificateFileName(animal.moozzle_id);
+      setPdfNotice({
+        tone: 'green',
+        text: outcome === 'downloaded' ? `${fileName} downloaded.` : outcome === 'shared' ? `${fileName} is ready — saved or shared from the share sheet.` : `${fileName} was generated, but sharing is unavailable on this device.`,
+      });
+      void logAudit('export.records', animal.moozzle_id, 'Biometric certificate PDF downloaded', 'success');
+    } catch (caught) {
+      console.error('Certificate PDF generation failed', caught);
+      const text = `Certificate PDF could not be generated. ${messageOf(caught, 'Please try again.')}`;
+      setPdfNotice({ tone: 'red', text });
+      if (Platform.OS !== 'web') Alert.alert('Certificate not generated', text);
+      void logAudit('export.records', animal.moozzle_id, 'Biometric certificate PDF failed', 'failed');
+    } finally {
+      setGenerating(false);
+    }
+  }, [animal, records, canViewHealth, organisationName, session.userId, session.name, session.role, online]);
   const certificate = [
     'MOOZZLE — Certificate of Biometric Registration',
     `MOOZZLE ID: ${formatMoozzleId(animal.moozzle_id)}`,
@@ -535,7 +570,15 @@ function DocumentsTab({ animal, policies }: { animal: Animal; policies: string[]
       <Card style={styles.certificate}>
         <Ionicons name="ribbon-outline" size={26} color={colors.primary} />
         <Text selectable style={styles.certText}>{certificate}</Text>
-        <PrimaryButton label={Platform.OS === 'web' ? 'Copy Certificate' : 'Share Certificate'} icon="share-outline" variant="outline" onPress={() => void share()} />
+        <PrimaryButton label={generating ? 'Generating Certificate PDF...' : 'Download Copy Certificate (PDF)'} icon="download-outline" disabled={generating} onPress={() => void download()} style={styles.certButton} />
+        {generating ? (
+          <View style={styles.generating} accessibilityLiveRegion="polite">
+            <ActivityIndicator color={colors.primary} />
+            <Text style={styles.muted}>Generating Certificate PDF...</Text>
+          </View>
+        ) : null}
+        {pdfNotice ? <View style={styles.certButton}><Banner tone={pdfNotice.tone} text={pdfNotice.text} onClose={() => setPdfNotice(null)} /></View> : null}
+        <PrimaryButton label={Platform.OS === 'web' ? 'Copy Certificate' : 'Share Certificate'} icon="share-outline" variant="outline" disabled={generating} onPress={() => void share()} style={styles.certButton} />
         {message ? <Text style={styles.muted}>{message}</Text> : null}
       </Card>
       {policies.map((policy) => <Card key={policy}><Detail label="Insurance policy document" value={policy} /></Card>)}
@@ -627,6 +670,8 @@ const styles = StyleSheet.create({
   policy: { gap: 10 },
   policyNo: { color: colors.text, fontFamily: Fonts.bold, fontSize: 15, fontVariant: ['tabular-nums'] },
   certificate: { gap: 12, alignItems: 'flex-start' },
+  certButton: { alignSelf: 'stretch' },
+  generating: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   certText: { color: colors.text, fontFamily: Fonts.medium, fontSize: 13, lineHeight: 21 },
   errorText: { color: colors.danger, fontFamily: Fonts.medium, fontSize: 13 },
   activityRow: { flexDirection: 'row', gap: 10, paddingVertical: 4 },

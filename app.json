@@ -65,7 +65,9 @@
         {
           "locationWhenInUsePermission": "MOOZZLE records the GPS location of every animal registration so the record can be verified in the field."
         }
-      ]
+      ],
+      "expo-sharing",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true
