@@ -1,5 +1,22 @@
 /** Records directory, animal profile hub, service record forms. Format: English | Hindi | Gujarati */
 export const RECORDS = `
+Total Animals | कुल पशु | કુલ પશુઓ
+Toggle animal overview | पशु सारांश दिखाएँ / छिपाएँ | પશુ સારાંશ બતાવો / છુપાવો
+Hide | छिपाएँ | છુપાવો
+Details | विवरण | વિગતો
+Production | उत्पादन स्थिति | ઉત્પાદન સ્થિતિ
+Pregnancy | गर्भावस्था | ગાભણપણું
+Dairy Society | डेयरी समिति | દૂધ મંડળી
+Verification | सत्यापन | ચકાસણી
+Milk | दुधारू | દૂઝણી
+Dry | सूखी | વસૂકેલી
+Pregnant | गर्भवती | ગાભણી
+Giving milk | दूध दे रहे | દૂધ ભરાવે છે
+Calf | बछड़ा | વાછરડું
+Young | युवा | યુવાન
+Adult | वयस्क | પુખ્ત
+Dairy Society: {x} | डेयरी समिति: {x} | દૂધ મંડળી: {x}
+Location not recorded | स्थान दर्ज नहीं | સ્થળ નોંધાયું નથી
 year | वर्ष | વર્ષ
 month | महीना | મહિનો
 Looked up by MOOZZLE ID / filter | MOOZZLE ID / फ़िल्टर से खोजा गया | MOOZZLE ID / ફિલ્ટરથી શોધ્યું

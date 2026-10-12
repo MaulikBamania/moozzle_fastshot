@@ -741,10 +741,10 @@ const styles = StyleSheet.create({
   pageBody: { flex: 1 },
   // Stacked header: the cancel link and the title sit on separate rows so they can never collide,
   // whatever the viewport width or the phone's font scale.
-  topBar: { paddingHorizontal: 14, paddingTop: 6, paddingBottom: 14, gap: 6, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
+  topBar: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 14, gap: 6, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
   cancelButton: { minHeight: 44, alignSelf: 'flex-start', maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: -4, paddingRight: 8 },
   cancelText: { flexShrink: 1, color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 14 },
-  topTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 22, lineHeight: 28 },
+  topTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 22, lineHeight: 28, paddingRight: 8, flexShrink: 1 },
   content: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 30, gap: 18 },
   stepper: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 2 },
   stepItem: { flex: 1, alignItems: 'center', position: 'relative', gap: 5 },
