@@ -190,6 +190,7 @@ function PerformanceContent() {
 
         <SectionHeading eyebrow="Live engine" title="FAR / FRR validation" />
         <LiveValidation onLoaded={setValidation} />
+        <PrimaryButton label="OPEN SCAN ANALYTICS · FRR / FAR REPORT" icon="pulse-outline" variant="soft" onPress={() => router.push('/analytics')} />
 
         <SectionHeading eyebrow="Research target" title="99.99% benchmark sample size" />
         <SampleSizeCard impostorTrials={validation ? validation.pairs.filter((pair) => pair[0] === 0).length : null} />

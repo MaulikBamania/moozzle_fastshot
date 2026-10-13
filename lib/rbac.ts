@@ -153,6 +153,7 @@ export type Destination =
   | 'api-docs'
   | 'sync'
   | 'performance'
+  | 'analytics'
   | 'research'
   | 'notifications'
   | 'services-health'
@@ -203,6 +204,7 @@ export const DESTINATION_ROUTES: Record<Destination, string> = {
   'api-docs': '/api-docs',
   sync: '/sync',
   performance: '/performance',
+  analytics: '/analytics',
   research: '/research',
   notifications: '/notifications',
   'services-health': '/services?type=health',
@@ -354,6 +356,7 @@ export function canOpen(destination: Destination, role: Role, permissions: Permi
     case 'audit':
       return allows(permissions.view_audit_logs) || permissions.view_audit_logs === 'Technical only';
     case 'reports':
+    case 'analytics':
       return permissions.view_reports !== 'No';
     case 'users':
       return allows(permissions.manage_users);

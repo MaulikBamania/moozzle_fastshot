@@ -478,3 +478,39 @@ export interface ValidationPayload {
   verify_threshold: number;
   scans: { total: number; match: number; no_match: number; uncertain: number; avg_ms: number | null };
 }
+
+// ---------- Scan analytics (FAR / FRR) ----------
+export type GroundTruth = 'genuine' | 'impostor';
+export type ScanType = 'identify' | 'verify' | 'enrol_check';
+export type AnalyticsSpecies = 'Cattle' | 'Buffalo' | 'Crossbred';
+export type ScanVerdict = 'True Match' | 'True Non-Match' | 'False Accept' | 'False Reject' | 'Unlabelled';
+
+export interface ScanAnalyticsRow {
+  id: string;
+  created_at: string;
+  scan_type: ScanType;
+  outcome: MatchOutcome;
+  similarity: number | null;
+  quality_score: number | null;
+  quality_status: string;
+  processing_ms: number | null;
+  templates_searched: number;
+  frames: number;
+  user_role: string;
+  own: boolean;
+  moozzle_id: string | null;
+  animal_in_scope: boolean;
+  species: AnalyticsSpecies | null;
+  ground_truth: GroundTruth | null;
+  ground_truth_note: string | null;
+  labelled_at: string | null;
+}
+
+export interface ScanAnalyticsPayload {
+  scope: 'own' | 'organisation' | 'platform';
+  since: string | null;
+  match_threshold: number;
+  review_threshold: number;
+  verify_threshold: number;
+  scans: ScanAnalyticsRow[];
+}

@@ -5,6 +5,7 @@ import { getAnimalImageSource, formatMoozzleId } from '@/components/moozzle-ui';
 import { formatAge } from '@/lib/age';
 import { signedCaptureUrl } from '@/lib/biometric/engine';
 import { remoteDataUrl } from '@/lib/certificate/data-url';
+import { getDeviceId } from '@/lib/device-id';
 import { assetDataUrl, enhanceMuzzlePattern, exportCertificatePdf, type CertificateExportOutcome } from '@/lib/certificate/platform';
 import { buildCertificateHtml, type CertificateData, type CertificateMuzzleFrame } from '@/lib/certificate/template';
 import { supabase } from '@/lib/supabase';
@@ -163,11 +164,12 @@ export async function buildCertificate(input: CertificateInput): Promise<string>
   const { animal } = input;
   const registeredAt = validDate(animal.device_registered_at) ?? validDate(animal.registration_date);
   const verifyUrl = Linking.createURL('/verify', { queryParams: { id: animal.moozzle_id } });
-  const [logo, animalPhoto, muzzle, registeredBy] = await Promise.all([
+  const [logo, animalPhoto, muzzle, registeredBy, deviceId] = await Promise.all([
     optionalAsset(LOGO),
     optionalAsset(getAnimalImageSource(animal.animal_type, animal.breed)),
     muzzleFrames(animal),
     registeredByName(input),
+    getDeviceId(),
   ]);
   const dairy = animal.dairy_society_member;
   const ownerVisible = animal.owner_visible;
@@ -217,7 +219,7 @@ export async function buildCertificate(input: CertificateInput): Promise<string>
     muzzle,
     additional: {
       version: Constants.expoConfig?.version ?? '1.0.1',
-      deviceId: 'MZ-APP-001',
+      deviceId,
       network: animal.pending_sync ? 'Offline (pending sync)' : input.online ? 'Online' : 'Offline',
       source: 'Mobile App',
     },

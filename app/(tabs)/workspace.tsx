@@ -24,6 +24,7 @@ const COMMON: NavItem[] = [
   { label: 'Notifications', icon: 'notifications-outline', to: 'notifications' },
   { label: 'My Requests', icon: 'chatbubbles-outline', to: 'requests' },
   { label: 'Audit Logs', icon: 'reader-outline', to: 'audit' },
+  { label: 'Biometric Scan Analytics', icon: 'analytics-outline', to: 'analytics' },
   { label: 'Reports & Export', icon: 'bar-chart-outline', to: 'reports' },
   { label: 'Offline Records & Sync', icon: 'cloud-upload-outline', to: 'sync' },
   { label: 'Profile & Sign Out', icon: 'person-circle-outline', to: 'profile' },

@@ -568,8 +568,13 @@ function DocumentsTab({ animal, records, canViewHealth, policies }: { animal: An
     <View style={styles.stack}>
       <Text style={styles.sectionTitle}>Documents</Text>
       <Card style={styles.certificate}>
-        <Ionicons name="ribbon-outline" size={26} color={colors.primary} />
-        <Text selectable style={styles.certText}>{certificate}</Text>
+        <View style={styles.certHead}>
+          <View style={styles.certIcon}><Ionicons name="ribbon-outline" size={24} color={colors.primary} /></View>
+          <View style={styles.certHeadCopy}>
+            <Text style={styles.certTitle}>MOOZZLE ID Certificate</Text>
+            <Text style={styles.muted}>Official A4 copy with animal, owner, GPS, health and muzzle biometric details plus a verification QR code.</Text>
+          </View>
+        </View>
         <PrimaryButton label={generating ? 'Generating Certificate PDF...' : 'Download Copy Certificate (PDF)'} icon="download-outline" disabled={generating} onPress={() => void download()} style={styles.certButton} />
         {generating ? (
           <View style={styles.generating} accessibilityLiveRegion="polite">
@@ -578,6 +583,7 @@ function DocumentsTab({ animal, records, canViewHealth, policies }: { animal: An
           </View>
         ) : null}
         {pdfNotice ? <View style={styles.certButton}><Banner tone={pdfNotice.tone} text={pdfNotice.text} onClose={() => setPdfNotice(null)} /></View> : null}
+        <Text selectable style={styles.certText}>{certificate}</Text>
         <PrimaryButton label={Platform.OS === 'web' ? 'Copy Certificate' : 'Share Certificate'} icon="share-outline" variant="outline" disabled={generating} onPress={() => void share()} style={styles.certButton} />
         {message ? <Text style={styles.muted}>{message}</Text> : null}
       </Card>
@@ -670,6 +676,10 @@ const styles = StyleSheet.create({
   policy: { gap: 10 },
   policyNo: { color: colors.text, fontFamily: Fonts.bold, fontSize: 15, fontVariant: ['tabular-nums'] },
   certificate: { gap: 12, alignItems: 'flex-start' },
+  certHead: { flexDirection: 'row', alignItems: 'center', gap: 12, alignSelf: 'stretch' },
+  certIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
+  certHeadCopy: { flex: 1, minWidth: 0, gap: 2 },
+  certTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 16 },
   certButton: { alignSelf: 'stretch' },
   generating: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   certText: { color: colors.text, fontFamily: Fonts.medium, fontSize: 13, lineHeight: 21 },

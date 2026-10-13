@@ -76,6 +76,7 @@ export default function RootLayout() {
               <Stack.Screen name="sync" options={{ presentation: 'card' }} />
               <Stack.Screen name="profile" options={{ presentation: 'card' }} />
               <Stack.Screen name="performance" options={{ presentation: 'card' }} />
+              <Stack.Screen name="analytics" options={{ presentation: 'card' }} />
               <Stack.Screen name="api-docs" options={{ presentation: 'card' }} />
               <Stack.Screen name="about" options={{ presentation: 'card' }} />
               <Stack.Screen name="notifications" />
