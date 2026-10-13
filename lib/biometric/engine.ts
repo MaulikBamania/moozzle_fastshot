@@ -5,36 +5,47 @@
  */
 import * as Crypto from 'expo-crypto';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
+import { Platform } from 'react-native';
 import UPNG from 'upng-js';
 import { supabase } from '@/lib/supabase';
 import type {
+  AcquisitionEventType,
+  BiometricOperation,
+  CaptureSource,
   IdentifyResult,
   MuzzleAnalysis,
   MuzzleDetection,
   PipelineStage,
   QualityMetrics,
-  QualityStatus,
   ValidationPayload,
   VerifyResult,
 } from '@/store/types';
-import { BiometricError } from './errors';
-import { base64ToBytes, downsample, embeddingLiteral, extractEmbedding, measureQuality, qualityScore, rgbaToGray } from './features';
+import { BiometricError, ServiceUnavailableError } from './errors';
+import { base64ToBytes, downsample, ENGINE_MODEL, embeddingLiteral, extractEmbedding, measureQuality, qualityScore, rgbaToGray } from './features';
+import { assessQuality, conditionOf, EMPTY_DETECTION, GOOD_STATUS, QUALITY_HINTS, REASON_GUIDANCE, resolutionOk } from './quality';
 import { analyzeBase64Image } from './vision';
 
-export { BiometricError };
+export { BiometricError, QUALITY_HINTS, ServiceUnavailableError };
 
 export const CAPTURE_BUCKET = 'muzzle-captures';
 const NORMALISED_WIDTH = 960;
 const CROP_SIZE = 256;
 
-export const QUALITY_HINTS: Record<QualityStatus, string> = {
-  'GOOD IMAGE — READY TO SCAN': 'Muzzle detected, in focus and evenly lit.',
-  'MOVE CLOSER': 'Fill the oval with the muzzle — hold the phone 15–25 cm away.',
-  'TOO BLURRY — RETAKE': 'Hold the phone steady and tap to focus before capturing.',
-  'TOO DARK — IMPROVE LIGHTING': 'Turn the animal toward daylight or use a torch from the side.',
-  'MUZZLE NOT DETECTED': 'Point the camera straight at the nose (muzzle) of a cow or buffalo.',
-  'PATTERN NOT CLEAR — RETAKE': 'Wipe away moisture, dirt or glare so ridges and beads are visible.',
-};
+/** Coarse capture-device label for performance breakdowns; never a personal device name. */
+export function deviceLabel(source: CaptureSource): string {
+  return `${Platform.OS} ${String(Platform.Version ?? '')}`.trim() + ` · ${source}`;
+}
+
+function isNetworkFailure(error: unknown): boolean {
+  const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message: unknown }).message) : '';
+  return error instanceof TypeError || /failed to fetch|network request failed|networkerror|fetch failed|load failed|timed? ?out/i.test(message);
+}
+
+/** RPC errors caused by the connection become SERVICE UNAVAILABLE; decisions and denials pass through. */
+function serviceAware(error: unknown, what: string): unknown {
+  if (isNetworkFailure(error)) return new ServiceUnavailableError(`${what} could not be reached. Check your connection and retry.`);
+  return error;
+}
 
 export const STAGE_LABELS: Record<PipelineStage, string> = {
   normalize: 'Normalising capture (960 px, colour-corrected)',
@@ -89,25 +100,48 @@ function normaliseBox(b: [number, number, number, number]): [number, number, num
   return [cx, cy, Math.min(1 - cx, w), Math.min(1 - cy, h)];
 }
 
-function decideStatus(d: MuzzleDetection, m: QualityMetrics | null): QualityStatus {
-  if (!d.muzzleDetected || !d.box || !m) return 'MUZZLE NOT DETECTED';
-  if (m.fill < 0.06 || Math.max(d.box[2], d.box[3]) < 0.26) return 'MOVE CLOSER';
-  if (m.brightness < 58 || (d.lighting === 'dark' && m.brightness < 85)) return 'TOO DARK — IMPROVE LIGHTING';
-  if (m.sharpness < 22 || (d.focus === 'blurry' && m.sharpness < 90)) return 'TOO BLURRY — RETAKE';
-  if (m.overexposed > 0.2 || m.contrast < 14 || d.occlusion === 'heavy' || (!d.patternVisible && m.sharpness < 140)) return 'PATTERN NOT CLEAR — RETAKE';
-  return 'GOOD IMAGE — READY TO SCAN';
-}
-
 /** Runs stages 1–5 on a captured or uploaded frame. AI failures are thrown — never replaced by a guess. */
-export async function analyzeMuzzle(uri: string, onStage?: (stage: PipelineStage) => void): Promise<MuzzleAnalysis> {
+export async function analyzeMuzzle(uri: string, onStage?: (stage: PipelineStage) => void, source: CaptureSource = 'camera'): Promise<MuzzleAnalysis> {
   const started = performance.now();
   onStage?.('normalize');
+  const sourceRef = await ImageManipulator.manipulate(uri).renderAsync();
+  const sourceWidth = sourceRef.width;
+  const sourceHeight = sourceRef.height;
   const normalizedRef = await ImageManipulator.manipulate(uri).resize({ width: NORMALISED_WIDTH }).renderAsync();
   const normalized = await normalizedRef.saveAsync({ format: SaveFormat.JPEG, compress: 0.86, base64: true });
   if (!normalized.base64) throw new BiometricError('The capture could not be encoded on this device.');
 
+  // Resolution pre-check: a frame this small cannot show the pattern, so the AI detector is not called.
+  if (!resolutionOk(sourceWidth, sourceHeight)) {
+    const assessed = assessQuality(EMPTY_DETECTION, null, sourceWidth, sourceHeight);
+    return {
+      status: 'RESOLUTION TOO LOW — RETAKE',
+      reasons: ['low_resolution'],
+      hint: `${REASON_GUIDANCE.low_resolution.cause} ${REASON_GUIDANCE.low_resolution.fix} (${sourceWidth}×${sourceHeight} px)`,
+      sourceWidth,
+      sourceHeight,
+      condition: 'normal',
+      source,
+      qualityScore: 0,
+      metrics: null,
+      detection: { ...EMPTY_DETECTION, notes: assessed.reasons.join(',') },
+      embedding: null,
+      imageUri: normalized.uri,
+      imageBase64: normalized.base64,
+      cropUri: null,
+      processingMs: Math.round(performance.now() - started),
+    };
+  }
+
   onStage?.('detect');
-  const raw = await analyzeBase64Image({ base64: normalized.base64, mimeType: 'image/jpeg', prompt: DETECT_PROMPT });
+  let raw: string;
+  try {
+    raw = await analyzeBase64Image({ base64: normalized.base64, mimeType: 'image/jpeg', prompt: DETECT_PROMPT });
+  } catch (error) {
+    console.error('AI muzzle detection unavailable', error);
+    const message = error instanceof Error ? error.message : 'AI muzzle detection failed.';
+    throw new ServiceUnavailableError(message);
+  }
   const detection = parseDetection(raw);
 
   let metrics: QualityMetrics | null = null;
@@ -135,16 +169,21 @@ export async function analyzeMuzzle(uri: string, onStage?: (stage: PipelineStage
 
     onStage?.('quality');
     metrics = measureQuality(gray, bw * bh);
-    const status = decideStatus(detection, metrics);
-    if (status === 'GOOD IMAGE — READY TO SCAN') {
+    if (assessQuality(detection, metrics, sourceWidth, sourceHeight).status === GOOD_STATUS) {
       onStage?.('embed');
       embedding = extractEmbedding(downsample(gray));
     }
   }
-  const status = decideStatus(detection, metrics);
+  const { status, reasons } = assessQuality(detection, metrics, sourceWidth, sourceHeight);
+  const guidance = reasons.map((reason) => REASON_GUIDANCE[reason].cause).join(' ');
   return {
     status,
-    hint: detection.notes && status !== 'GOOD IMAGE — READY TO SCAN' ? `${QUALITY_HINTS[status]} (${detection.notes})` : QUALITY_HINTS[status],
+    reasons,
+    hint: status === GOOD_STATUS ? QUALITY_HINTS[status] : `${guidance} ${QUALITY_HINTS[status]}${detection.notes ? ` (${detection.notes})` : ''}`,
+    sourceWidth,
+    sourceHeight,
+    condition: conditionOf(metrics),
+    source,
     qualityScore: metrics ? qualityScore(metrics) : 0,
     metrics,
     detection,
@@ -185,11 +224,19 @@ export async function uploadCapture(analysis: MuzzleAnalysis): Promise<string> {
     console.error(`Capture upload attempt ${attempt} failed`, lastError);
   }
   const reason = lastError && typeof lastError === 'object' && 'message' in lastError ? String((lastError as { message: unknown }).message) : '';
-  throw new BiometricError(`The capture could not be uploaded${reason ? `: ${reason}` : ''}. Check your connection and retry.`);
+  throw new ServiceUnavailableError(`The capture could not be uploaded${reason ? `: ${reason}` : ''}. Check your connection and retry.`);
 }
 
+/** Quality summary sent with every comparison; carries no image or template data. */
 function qualityPayload(analysis: MuzzleAnalysis) {
-  return { status: analysis.status, score: analysis.qualityScore, ...analysis.metrics };
+  return {
+    status: analysis.status,
+    score: analysis.qualityScore,
+    ...analysis.metrics,
+    model: ENGINE_MODEL,
+    device: deviceLabel(analysis.source),
+    condition: analysis.condition,
+  };
 }
 
 function requireEmbedding(analysis: MuzzleAnalysis): number[] {
@@ -203,34 +250,80 @@ export async function identifyMuzzle(frames: MuzzleAnalysis[], onStage?: (stage:
   onStage?.('search');
   const started = performance.now();
   const imagePath = await uploadCapture(frames[0]);
-  const { data, error } = await supabase.rpc('identify_muzzle', {
-    p_embeddings: frames.map((frame) => embeddingLiteral(requireEmbedding(frame))),
-    p_image_path: imagePath,
-    p_quality: qualityPayload(frames[0]),
-    p_processing_ms: Math.round(frames.reduce((sum, f) => sum + f.processingMs, 0) + performance.now() - started),
-  });
-  if (error) throw error;
-  return { ...(data as Omit<IdentifyResult, 'image_path'>), image_path: imagePath };
+  let response: Awaited<ReturnType<typeof supabase.rpc>>;
+  try {
+    response = await supabase.rpc('identify_muzzle', {
+      p_embeddings: frames.map((frame) => embeddingLiteral(requireEmbedding(frame))),
+      p_image_path: imagePath,
+      p_quality: qualityPayload(frames[0]),
+      p_processing_ms: Math.round(frames.reduce((sum, f) => sum + f.processingMs, 0) + performance.now() - started),
+    });
+  } catch (error) {
+    throw serviceAware(error, 'The MOOZZLE matching server');
+  }
+  if (response.error) throw serviceAware(response.error, 'The MOOZZLE matching server');
+  return { ...(response.data as Omit<IdentifyResult, 'image_path'>), image_path: imagePath };
 }
 
 export async function verifyMuzzle(moozzleId: string, analysis: MuzzleAnalysis, onStage?: (stage: PipelineStage) => void): Promise<VerifyResult> {
   onStage?.('search');
   const started = performance.now();
   const imagePath = await uploadCapture(analysis);
-  const { data, error } = await supabase.rpc('verify_muzzle', {
-    p_moozzle_id: moozzleId.replace(/\s/g, ''),
-    p_embedding: embeddingLiteral(requireEmbedding(analysis)),
-    p_image_path: imagePath,
-    p_quality: qualityPayload(analysis),
-    p_processing_ms: Math.round(analysis.processingMs + performance.now() - started),
-  });
-  if (error) throw error;
-  return data as VerifyResult;
+  let response: Awaited<ReturnType<typeof supabase.rpc>>;
+  try {
+    response = await supabase.rpc('verify_muzzle', {
+      p_moozzle_id: moozzleId.replace(/\s/g, ''),
+      p_embedding: embeddingLiteral(requireEmbedding(analysis)),
+      p_image_path: imagePath,
+      p_quality: qualityPayload(analysis),
+      p_processing_ms: Math.round(analysis.processingMs + performance.now() - started),
+    });
+  } catch (error) {
+    throw serviceAware(error, 'The MOOZZLE matching server');
+  }
+  if (response.error) throw serviceAware(response.error, 'The MOOZZLE matching server');
+  return response.data as VerifyResult;
 }
 
 export async function requestScanReview(scanId: string, note: string): Promise<void> {
   const { error } = await supabase.rpc('request_scan_review', { p_scan: scanId, p_note: note });
   if (error) throw error;
+}
+
+export interface AcquisitionEventInput {
+  operation: BiometricOperation;
+  eventType: AcquisitionEventType;
+  analysis?: MuzzleAnalysis | null;
+  reasonCode?: string;
+  framesAttempted?: number;
+  framesAccepted?: number;
+  source?: CaptureSource;
+}
+
+/**
+ * Records a Failure to Acquire, a service outage or a Failure to Enrol in its own log, separate from
+ * matching results. Best effort: a logging failure never blocks the field workflow.
+ */
+export async function logAcquisitionEvent(input: AcquisitionEventInput): Promise<void> {
+  const analysis = input.analysis ?? null;
+  try {
+    const { error } = await supabase.rpc('log_acquisition_event', {
+      p: {
+        operation: input.operation,
+        event_type: input.eventType,
+        reason_code: input.reasonCode ?? analysis?.reasons[0] ?? '',
+        quality_status: analysis?.status ?? '',
+        quality_score: analysis ? analysis.qualityScore : null,
+        frames_attempted: input.framesAttempted ?? 1,
+        frames_accepted: input.framesAccepted ?? 0,
+        device_model: deviceLabel(analysis?.source ?? input.source ?? 'camera'),
+        capture_condition: analysis?.condition ?? '',
+      },
+    });
+    if (error) throw error;
+  } catch (error) {
+    console.error('Acquisition event could not be logged', error);
+  }
 }
 
 export async function fetchValidation(mode: ValidationPayload['mode']): Promise<ValidationPayload> {

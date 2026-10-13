@@ -9,9 +9,15 @@ import { supabase } from '@/lib/supabase';
 import { loadBovineData, useBovineStore, useSession } from '@/store/useBovineStore';
 import type { SettingRow } from '@/store/types';
 
+/** Governed by the versioned configuration workflow (propose, approve, promote); never edited here. */
+const GOVERNED_KEYS = new Set(['biometric_threshold', 'model_version', 'match_threshold', 'verify_threshold', 'review_threshold']);
+
 const LABELS: Record<string, string> = {
-  biometric_threshold: 'Biometric match threshold',
+  biometric_threshold: 'Legacy match threshold (unused)',
   model_version: 'Biometric model version',
+  match_threshold: '1:N identification accept threshold',
+  verify_threshold: '1:1 verification accept threshold',
+  review_threshold: '1:N review threshold',
   data_retention_days: 'Record retention after retirement (days)',
   raw_image_retention_days: 'Raw muzzle image retention (days)',
   require_registration_approval: 'Registrations need approval',
@@ -47,7 +53,7 @@ function SettingsContent() {
   const [editing, setEditing] = useState<SettingRow | null>(null);
   const [notice, setNotice] = useState('');
   const isSuper = session.role === 'Super Administrator';
-  const canEdit = (setting: SettingRow) => (isSuper && session.privileged) || (session.role === 'API Administrator' && setting.key === 'api_default_rate_limit');
+  const canEdit = (setting: SettingRow) => !GOVERNED_KEYS.has(setting.key) && ((isSuper && session.privileged) || (session.role === 'API Administrator' && setting.key === 'api_default_rate_limit'));
 
   return (
     <>
@@ -69,6 +75,12 @@ function SettingsContent() {
           <Text style={styles.body}>{setting.description}</Text>
           <Text style={styles.meta}>Updated {new Date(setting.updated_at).toLocaleString()}</Text>
           {canEdit(setting) ? <PrimaryButton label="Change" variant="outline" onPress={() => setEditing(setting)} /> : null}
+          {GOVERNED_KEYS.has(setting.key) ? (
+            <>
+              <Text style={styles.body}>Mirrors the production biometric configuration. Changes need a tested proposal, independent approval and promotion.</Text>
+              <PrimaryButton label="Open Threshold Governance" icon="options-outline" variant="soft" onPress={() => go('performance')} />
+            </>
+          ) : null}
         </Card>
       ))}
       {editing ? (
@@ -78,7 +90,7 @@ function SettingsContent() {
           specs={[{ title: 'Setting', fields: [{ key: 'value', label: `New value (current ${String(editing.value)})`, required: true }, { key: 'reason', label: 'Reason / approval reference', required: true, placeholder: 'At least 10 characters' }] }]}
           submitLabel="Apply Change"
           danger={editing.risk === 'high'}
-          confirmText={editing.key === 'biometric_threshold' ? 'Only validated values between 0.50 and 0.99 are accepted. A wrong threshold increases false matches or rejections.' : 'This change is audited.'}
+          confirmText="This change is audited."
           onClose={() => setEditing(null)}
           onSubmit={async ({ values }) => {
             const value = parseValue(editing, values.value ?? '');

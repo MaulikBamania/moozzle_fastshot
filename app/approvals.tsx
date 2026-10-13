@@ -5,6 +5,7 @@ import { Text } from '@/components/translated-text';
 import { StackScreen } from '@/components/app-chrome';
 import { FormSheet } from '@/components/record-forms';
 import { Card, colors, DataGate, EmptyState, formatMoozzleId, Pill, PrimaryButton } from '@/components/moozzle-ui';
+import { ScanReviewQueue } from '@/components/scan-review-queue';
 import { Fonts } from '@/constants/Typography';
 import { formatAgeShort } from '@/lib/age';
 import type { Role } from '@/lib/rbac';
@@ -69,6 +70,8 @@ function ApprovalsContent() {
     <>
       {notice ? <View style={styles.notice}><Text selectable style={styles.noticeText}>{notice}</Text></View> : null}
       {role === 'Super Administrator' && !session.privileged ? <Text style={styles.muted}>Start privileged access (Security) to review identifiable registrations.</Text> : null}
+
+      <ScanReviewQueue />
 
       <Text style={styles.section}>Registrations awaiting approval ({registrations.length})</Text>
       {registrations.length === 0 ? <EmptyState title="No registrations waiting" message="New registrations from field staff appear here for independent review." /> : null}

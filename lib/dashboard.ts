@@ -248,16 +248,13 @@ export function buildDashboard(input: DashboardInput): DashCard[] {
       const rows = input.research;
       const breeds = rows ? new Set(rows.map((row) => row.breed)).size : 0;
       const good = rows ? rows.filter((row) => row.quality_score >= 0.85).length : 0;
-      const trials = input.validationTrials;
-      const far = trials.length ? (trials.reduce((sum, t) => sum + t.far, 0) / trials.length).toFixed(2) : null;
-      const frr = trials.length ? (trials.reduce((sum, t) => sum + t.frr, 0) / trials.length).toFixed(2) : null;
       return [
         { label: 'Dataset Size', value: rows ? fmt(rows.length) : '—', icon: 'server-outline', to: 'research', tone: 'violet' },
         { label: 'Breed Coverage', value: rows ? `${breeds} breeds` : '—', icon: 'git-branch-outline', to: 'research', tone: 'green' },
         { label: 'Image Quality Distribution', value: rows && rows.length ? `${Math.round((good / rows.length) * 100)}% ≥ 0.85` : '—', icon: 'images-outline', to: 'research', tone: 'blue' },
-        { label: 'Validation Progress', value: `${trials.length} trial${trials.length === 1 ? '' : 's'}`, icon: 'flask-outline', to: 'performance', tone: 'amber' },
-        { label: 'FAR / FRR Results', value: far && frr ? `${far}% / ${frr}%` : 'No trials yet', icon: 'stats-chart-outline', to: 'performance', tone: 'slate' },
-        { label: 'Recognition Latency', value: 'Not measured', icon: 'timer-outline', to: 'performance', tone: 'slate', hint: 'No on-device model yet' },
+        { label: '1:1 FAR / FRR', value: 'Open dashboard', icon: 'stats-chart-outline', to: 'performance', tone: 'amber', hint: 'Labelled 1:1 trials only' },
+        { label: '1:N FPIR / FNIR', value: 'Open dashboard', icon: 'search-outline', to: 'performance', tone: 'slate', hint: 'Labelled 1:N searches only' },
+        { label: 'Threshold Proposals', value: 'Governance', icon: 'options-outline', to: 'performance', tone: 'slate', hint: 'Propose · needs admin approval' },
       ];
     }
     case 'API Administrator': {

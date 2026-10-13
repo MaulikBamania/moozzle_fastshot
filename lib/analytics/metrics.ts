@@ -1,8 +1,9 @@
 import type { AnalyticsSpecies, GroundTruth, ScanAnalyticsRow, ScanType, ScanVerdict } from '@/store/types';
+import { GOALS } from './goals';
 
-/** Benchmarks the report is graded against. */
-export const FAR_TARGET = 0.0001; // < 0.01 %  (99.99 % impostor rejection)
-export const FRR_TARGET = 0.01; // < 1.0 %
+/** Proposed validation goals (not performance claims) — see lib/analytics/goals.ts. */
+export const FAR_TARGET = GOALS.far.target ?? 0.000001; // ≤ 0.0001 % long-term, 1:1 only
+export const FRR_TARGET = GOALS.frr.target ?? 0.05; // ≤ 5 % initial, 1:1 only
 
 export const THRESHOLD_MIN = 0.6;
 export const THRESHOLD_MAX = 0.95;
@@ -212,11 +213,6 @@ export function formatTimestamp(iso: string): string {
   return `${pad(date.getDate())}-${pad(date.getMonth() + 1)}-${date.getFullYear()} ${pad(hours % 12 || 12)}:${pad(date.getMinutes())} ${hours < 12 ? 'AM' : 'PM'}`;
 }
 
-export type BenchmarkState = 'pass' | 'fail' | 'insufficient';
-export function benchmark(value: number | null, target: number): BenchmarkState {
-  if (value === null) return 'insufficient';
-  return value < target ? 'pass' : 'fail';
-}
 
 /** Smallest impostor sample that can demonstrate FAR below the target with zero errors (rule of three, 95 %). */
 export function trialsNeeded(target: number): number {

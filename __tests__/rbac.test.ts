@@ -26,8 +26,10 @@ describe('permission matrix', () => {
     for (const permission of PERMISSIONS) for (const role of ROLES) expect(DEFAULT_MATRIX[permission][role]).toBeTruthy();
   });
 
-  it('only the Super Administrator may change biometric thresholds', () => {
-    for (const role of ROLES) expect(DEFAULT_MATRIX.change_threshold[role] === 'No').toBe(role !== 'Super Administrator');
+  it('only the Super Administrator (approve/promote) and Researcher (propose) touch biometric thresholds', () => {
+    for (const role of ROLES) expect(DEFAULT_MATRIX.change_threshold[role] === 'No').toBe(role !== 'Super Administrator' && role !== 'Researcher');
+    expect(DEFAULT_MATRIX.change_threshold['Super Administrator']).toBe('Authorised');
+    expect(DEFAULT_MATRIX.change_threshold.Researcher).toBe('Limited');
   });
 
   it('denies by default when no permissions are loaded', () => {

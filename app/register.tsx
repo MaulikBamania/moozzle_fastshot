@@ -17,13 +17,15 @@ import {
   formatMoozzleId,
 } from '@/components/moozzle-ui';
 import { RequireAccess } from '@/components/app-chrome';
+import { DecisionBanner, ServiceUnavailablePanel, TestSessionBanner } from '@/components/biometric-decision';
 import { CaptureImage, EnginePipeline, errorText, MuzzleCapture, ScoreMeter } from '@/components/biometric-ui';
-import { analyzeMuzzle, uploadCapture } from '@/lib/biometric/engine';
+import { analyzeMuzzle, logAcquisitionEvent, uploadCapture } from '@/lib/biometric/engine';
+import { classifyBiometricError } from '@/lib/biometric/errors';
 import { cosineSimilarity, embeddingLiteral, ENGINE_MODEL } from '@/lib/biometric/features';
 import { createAnimal, generateMoozzleId, logAudit, useBovineStore, useSession, type RegisterResult } from '@/store/useBovineStore';
 import { useCaptureHandoff } from '@/store/useCaptureHandoff';
 import { useIsOnline } from '@/store/useConnectivity';
-import type { AgeGroup, AnimalType, GpsFix, MuzzleAnalysis, PipelineStage, PregnancyStatus, ProductionStatus, Sex, YesNo } from '@/store/types';
+import type { AgeGroup, AnimalType, CaptureSource, GpsFix, MuzzleAnalysis, PipelineStage, PregnancyStatus, ProductionStatus, Sex, YesNo } from '@/store/types';
 import { Fonts } from '@/constants/Typography';
 import { AGE_MAX_MONTHS, AGE_MAX_YEARS, formatAge } from '@/lib/age';
 import {
@@ -137,7 +139,10 @@ function RegisterContent() {
   const [analyzing, setAnalyzing] = useState(false);
   const [stage, setStage] = useState<PipelineStage | null>(null);
   const [captureError, setCaptureError] = useState('');
-  const [pendingUri, setPendingUri] = useState<string | null>(null);
+  const [pendingUri, setPendingUri] = useState<{ uri: string; source: CaptureSource } | null>(null);
+  const [captureService, setCaptureService] = useState(false);
+  // Capture attempts in this enrolment session, for Failure-to-Enrol reporting.
+  const attempts = useRef({ total: 0, rejected: 0 });
   const [saveStep, setSaveStep] = useState(-1);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -183,23 +188,27 @@ function RegisterContent() {
     if (isMaleOnlySpecies(value)) setSex('Male');
   }, []);
 
-  const handleFrame = useCallback(async (uri: string) => {
+  const handleFrame = useCallback(async (uri: string, source: CaptureSource) => {
     if (frames.length >= MAX_FRAMES) return;
     setCaptureError('');
-    setPendingUri(uri);
+    setCaptureService(false);
+    setPendingUri({ uri, source });
     setAnalyzing(true);
     try {
-      const analysis = await analyzeMuzzle(uri, setStage);
+      const analysis = await analyzeMuzzle(uri, setStage, source);
       setPendingUri(null);
+      attempts.current.total += 1;
       if (!analysis.embedding) {
+        attempts.current.rejected += 1;
         setFeedback(analysis);
-        void logAudit('biometric.capture', '', `Enrolment frame rejected: ${analysis.status}`, 'failed');
+        void logAcquisitionEvent({ operation: 'enrol', eventType: 'failure_to_acquire', analysis, framesAttempted: 1, framesAccepted: frames.length });
+        void logAudit('biometric.capture', '', `Enrolment frame rejected (not enrolled): ${analysis.status}`, 'failed');
         return;
       }
       const embedding = analysis.embedding;
       const sims = frames.map((frame) => cosineSimilarity(frame.analysis.embedding ?? [], embedding));
       if (sims.some((value) => value > 0.9995)) {
-        setFeedback({ ...analysis, status: 'PATTERN NOT CLEAR — RETAKE', hint: 'This frame is identical to one already accepted. Capture a new frame with a slightly different angle.', embedding: null });
+        setFeedback({ ...analysis, status: 'PATTERN NOT CLEAR — RETAKE', reasons: [], hint: 'This frame is identical to one already accepted. Capture a new frame with a slightly different angle.', embedding: null });
         return;
       }
       const consistency = sims.length ? sims.reduce((sum, value) => sum + value, 0) / sims.length : null;
@@ -207,12 +216,22 @@ function RegisterContent() {
       setFrames((current) => [...current, { analysis, consistency, path: null }].slice(0, MAX_FRAMES));
     } catch (caught) {
       console.error('Enrolment frame analysis failed', caught);
+      const service = classifyBiometricError(caught) === 'service_unavailable';
+      setCaptureService(service);
+      if (service) void logAcquisitionEvent({ operation: 'enrol', eventType: 'service_unavailable', reasonCode: 'service_unavailable', source });
       setCaptureError(errorText(caught, 'AI muzzle analysis failed. Check your connection and retry.'));
     } finally {
       setAnalyzing(false);
       setStage(null);
     }
   }, [frames]);
+
+  /** An enrolment abandoned without the minimum accepted frames after quality rejections is a Failure to Enrol. */
+  const reportFailureToEnrol = useCallback(() => {
+    if (step === 4 || frames.length >= MIN_FRAMES || attempts.current.rejected === 0) return;
+    void logAcquisitionEvent({ operation: 'enrol', eventType: 'failure_to_enrol', reasonCode: 'insufficient_quality_frames', framesAttempted: attempts.current.total, framesAccepted: frames.length, analysis: feedback });
+    attempts.current = { total: 0, rejected: 0 };
+  }, [feedback, frames.length, step]);
 
   const removeFrame = useCallback((index: number) => {
     setFrames((current) => current.filter((_, i) => i !== index));
@@ -246,7 +265,7 @@ function RegisterContent() {
     }
   }, [frames.length]);
 
-  const handleComplete = useCallback(async () => {
+  const handleComplete = useCallback(async (duplicateReviewNote?: string) => {
     if (saving || frames.length < MIN_FRAMES) return;
     const fix = gps.fix;
     if (!animalType || !ageGroup || !productionStatus || !pregnancyStatus || !dairySociety || !fix || Object.keys(detailErrors).length > 0) {
@@ -297,10 +316,11 @@ function RegisterContent() {
         qualityScores: scores,
         qualityMetrics: uploaded.flatMap((frame) => (frame.analysis.metrics ? [frame.analysis.metrics] : [])),
         saveAsDraft,
+        duplicateReviewNote,
       });
-      setSaveStep(3);
+      setSaveStep(result.blocked || result.reviewRequired ? -1 : 3);
       setRegistered(result);
-      if (!result.blocked) setStep(4);
+      if (!result.blocked && !result.reviewRequired) setStep(4);
     } catch (caught) {
       console.error('Could not complete animal registration', caught);
       setSaveError(errorText(caught, 'The new animal could not be saved. Please retry.'));
@@ -312,6 +332,7 @@ function RegisterContent() {
 
   const resetWizard = useCallback(() => {
     registrationKey.current = { id: Crypto.randomUUID(), moozzleId: generateMoozzleId() };
+    attempts.current = { total: 0, rejected: 0 };
     setRegisteredAt(null);
     setShowErrors(false);
     setStep(1);
@@ -336,6 +357,7 @@ function RegisterContent() {
         </View>
         <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={styles.flex} contentContainerStyle={styles.content}>
           <WizardStepper step={step} />
+          <TestSessionBanner />
           {step === 1 && <DetailsStep demographics={{ thresholds, ageGroup, canProduce, canBePregnant, productionStatus, pregnancyStatus, dairySociety, societyName, societyCode, memberCode, onDairy: setDairySociety, onSocietyName: setSocietyName, onSocietyCode: setSocietyCode, onMemberCode: setMemberCode, onProduction: setProductionChoice, onPregnancy: setPregnancyChoice }} errors={showErrors ? detailErrors : {}} gps={gps} animalType={animalType} breed={breed} sex={sex} ageYears={ageYears} ageMonths={ageMonths} stateName={stateName} district={district} village={village} owner={owner} ownerPhone={ownerPhone} farmId={farmId} breeds={breeds} farmOptions={farmOptions.map((farm) => ({ id: farm.id, label: `${farm.name} · ${farm.village}` }))} selectedFarmId={selectedFarmId} onFarm={chooseFarm} isFarmer={isFarmer} error={detailsError} onType={handleTypeChange} onBreed={setBreed} onSex={setSex} onAgeYears={setAgeYears} onAgeMonths={setAgeMonths} onState={setStateName} onDistrict={setDistrict} onVillage={setVillage} onOwner={setOwner} onOwnerPhone={setOwnerPhone} onFarmId={setFarmId} onNext={goToCapture} />}
           {step === 2 && (
             <CaptureStep
@@ -347,14 +369,15 @@ function RegisterContent() {
               stage={stage}
               error={captureError}
               canRetry={!!pendingUri}
-              onRetry={() => { if (pendingUri) void handleFrame(pendingUri); }}
-              onFrame={(uri) => void handleFrame(uri)}
+              serviceUnavailable={captureService}
+              onRetry={() => { if (pendingUri) void handleFrame(pendingUri.uri, pendingUri.source); }}
+              onFrame={(uri, source) => void handleFrame(uri, source)}
               onRemove={removeFrame}
               onBack={() => setStep(1)}
               onNext={goToProcessing}
             />
           )}
-          {step === 3 && <ProcessingStep frames={frames.length} activeStep={saveStep} saving={saving} saveError={saveError} needsApproval={needsApproval} saveAsDraft={saveAsDraft} blocked={registered?.blocked ? registered : null} onDraft={setSaveAsDraft} onBack={() => { setRegistered(null); setStep(2); }} onComplete={() => void handleComplete()} onExit={() => router.replace('/(tabs)')} />}
+          {step === 3 && <ProcessingStep frames={frames.length} probeUri={frames[0]?.analysis.cropUri ?? frames[0]?.analysis.imageUri ?? null} activeStep={saveStep} saving={saving} saveError={saveError} needsApproval={needsApproval} saveAsDraft={saveAsDraft} blocked={registered?.blocked ? registered : null} reviewRequired={registered?.reviewRequired ? registered : null} onDraft={setSaveAsDraft} onBack={() => { setRegistered(null); setStep(2); }} onComplete={(note) => void handleComplete(note)} onExit={() => router.replace('/(tabs)')} />}
           {step === 4 && registered && animalType && <SuccessStep result={registered} summary={{ animalType, breed, sex, ageYears, ageMonths, ageGroup, productionStatus, pregnancyStatus, dairySociety, village, stateName, captures: frames.length, gps: gps.fix, registeredAt }} cropUri={frames[0]?.analysis.cropUri ?? null} isFarmer={isFarmer} onProfile={() => router.push(`/animal/${registered.moozzleId}`)} onIdentify={() => router.replace('/(tabs)/identify')} onRegisterAnother={resetWizard} />}
         </ScrollView>
       </View>
@@ -366,7 +389,7 @@ function RegisterContent() {
             <Text style={styles.modalText}>Your captured frames and animal details will be discarded.</Text>
             <View style={styles.modalActions}>
               <PrimaryButton label="Keep Working" onPress={handleCancel} variant="outline" style={styles.modalAction} />
-              <PrimaryButton label="Cancel Enrolment" onPress={() => { setShowCancel(false); router.back(); }} variant="danger" style={styles.modalAction} />
+              <PrimaryButton label="Cancel Enrolment" onPress={() => { setShowCancel(false); reportFailureToEnrol(); router.back(); }} variant="danger" style={styles.modalAction} />
             </View>
           </View>
         </View>
@@ -564,8 +587,9 @@ interface CaptureStepProps {
   stage: PipelineStage | null;
   error: string;
   canRetry: boolean;
+  serviceUnavailable: boolean;
   onRetry: () => void;
-  onFrame: (uri: string) => void;
+  onFrame: (uri: string, source: CaptureSource) => void;
   onRemove: (index: number) => void;
   onBack: () => void;
   onNext: () => void;
@@ -576,12 +600,13 @@ function CaptureStep(props: CaptureStepProps) {
   const full = frames.length >= MAX_FRAMES;
   return (
     <View style={styles.stepContent}>
-      <View><Text style={styles.eyebrow}>STEP 2 OF 4</Text><Text style={styles.pageTitle}>Capture Muzzle</Text><Text style={styles.pageDescription}>Capture {MIN_FRAMES}–{MAX_FRAMES} accepted frames. Each one passes AI muzzle detection and measured quality checks before its embedding is kept.</Text></View>
+      <View><Text style={styles.eyebrow}>STEP 2 OF 4</Text><Text style={styles.pageTitle}>Capture Muzzle</Text><Text style={styles.pageDescription}>Capture {MIN_FRAMES}–{MAX_FRAMES} high-quality frames of the same animal. Each passes the same quality pre-check and preprocessing used for identification and verification; rejected frames are never enrolled.</Text></View>
       {props.prefilled ? <View style={styles.infoBox}><Ionicons name="link-outline" size={17} color={colors.blue} /><Text style={styles.infoText}>Frame 1 was carried over from your Identify scan (no registered match).</Text></View> : null}
       {!props.online ? <View style={styles.inlineError}><Ionicons name="cloud-offline-outline" size={17} color={colors.danger} /><Text style={styles.inlineErrorText}>Muzzle analysis needs a connection to the AI Gateway. Reconnect to capture frames.</Text></View> : null}
       <MuzzleCapture onFrame={props.onFrame} busy={props.analyzing} feedback={props.feedback} captureLabel={full ? 'Frames Complete' : `Capture Frame ${frames.length + 1}`} disabled={full || !props.online} />
       {props.analyzing ? <Card style={styles.processingCard}><EnginePipeline stage={props.stage} includeSearch={false} /></Card> : null}
-      {props.error ? <View style={styles.inlineError}><Ionicons name="alert-circle" size={17} color={colors.danger} /><Text selectable style={styles.inlineErrorText}>{props.error}</Text>{props.canRetry ? <PrimaryButton label="Retry" variant="outline" onPress={props.onRetry} style={styles.retryButton} /> : null}</View> : null}
+      {props.error && props.serviceUnavailable ? <ServiceUnavailablePanel message={props.error} onRetry={props.canRetry && props.online ? props.onRetry : undefined} /> : null}
+      {props.error && !props.serviceUnavailable ? <View style={styles.inlineError}><Ionicons name="alert-circle" size={17} color={colors.danger} /><Text selectable style={styles.inlineErrorText}>{props.error}</Text>{props.canRetry ? <PrimaryButton label="Retry" variant="outline" onPress={props.onRetry} style={styles.retryButton} /> : null}</View> : null}
       <Card style={styles.reelCard}>
         <View style={styles.reelHeader}><Text style={styles.formSectionTitle}>Accepted muzzle frames</Text><Text style={styles.captureCounter}>{frames.length} / {MAX_FRAMES}</Text></View>
         <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${(frames.length / MAX_FRAMES) * 100}%` }, frames.length >= MIN_FRAMES && styles.progressDone]} /></View>
@@ -605,22 +630,28 @@ function CaptureStep(props: CaptureStepProps) {
 
 interface ProcessingProps {
   frames: number;
+  probeUri: string | null;
   activeStep: number;
   saving: boolean;
   saveError: string;
   needsApproval: boolean;
   saveAsDraft: boolean;
   blocked: RegisterResult | null;
+  reviewRequired: RegisterResult | null;
   onDraft: (value: boolean) => void;
   onBack: () => void;
-  onComplete: () => void;
+  onComplete: (duplicateReviewNote?: string) => void;
   onExit: () => void;
 }
 
 function ProcessingStep(props: ProcessingProps) {
   const settings = useBovineStore((state) => state.settings);
-  const matchT = Number(settings.find((item) => item.key === 'match_threshold')?.value ?? 0.85);
-  const reviewT = Number(settings.find((item) => item.key === 'review_threshold')?.value ?? 0.7);
+  const decided = props.blocked ?? props.reviewRequired;
+  const matchT = decided?.matchThreshold ?? Number(settings.find((item) => item.key === 'match_threshold')?.value ?? 0.85);
+  const reviewT = decided?.reviewThreshold ?? Number(settings.find((item) => item.key === 'review_threshold')?.value ?? 0.7);
+  if (props.reviewRequired) {
+    return <DuplicateReviewStep result={props.reviewRequired} probeUri={props.probeUri} matchT={matchT} reviewT={reviewT} saving={props.saving} saveError={props.saveError} onSubmit={(note) => props.onComplete(note)} onBack={props.onBack} onExit={props.onExit} />;
+  }
   if (props.blocked) {
     const match = props.blocked.match;
     return (
@@ -646,7 +677,7 @@ function ProcessingStep(props: ProcessingProps) {
   }
   return (
     <View style={styles.stepContent}>
-      <View><Text style={styles.eyebrow}>STEP 3 OF 4</Text><Text style={styles.pageTitle}>Duplicate Check</Text><Text style={styles.pageDescription}>{props.frames} embeddings are searched against every enrolled template on the server before any ID is issued. A confirmed match blocks registration; an uncertain one goes to manual review.</Text></View>
+      <View><Text style={styles.eyebrow}>STEP 3 OF 4</Text><Text style={styles.pageTitle}>Duplicate Check</Text><Text style={styles.pageDescription}>{props.frames} embeddings are searched against every enrolled template on the server before any ID is issued. A confirmed match blocks registration; a possible match is held for your review and no ID is issued automatically.</Text></View>
       <Card style={styles.processingCard}><PipelineList steps={SAVE_STEPS} activeStep={props.activeStep} /></Card>
       <Card style={styles.formCard}>
         <Text style={styles.formSectionTitle}>Save as</Text>
@@ -656,8 +687,40 @@ function ProcessingStep(props: ProcessingProps) {
         </View>
         <Text style={styles.pageDescription}>{props.saveAsDraft ? 'Drafts stay private to you until submitted. The duplicate check still runs.' : props.needsApproval ? 'Your role’s registrations are reviewed by an authorised approver.' : 'Your role can enrol directly within your authorised scope.'}</Text>
       </Card>
-      <View style={styles.buttonRow}><PrimaryButton label="Back" onPress={props.onBack} variant="outline" style={styles.halfButton} disabled={props.saving} /><PrimaryButton label={props.saving ? 'Checking…' : props.saveError ? 'Retry' : 'Check & Register'} icon="shield-checkmark-outline" onPress={props.onComplete} disabled={props.saving} style={styles.halfButton} /></View>
+      <View style={styles.buttonRow}><PrimaryButton label="Back" onPress={props.onBack} variant="outline" style={styles.halfButton} disabled={props.saving} /><PrimaryButton label={props.saving ? 'Checking…' : props.saveError ? 'Retry' : 'Check & Register'} icon="shield-checkmark-outline" onPress={() => props.onComplete()} disabled={props.saving} style={styles.halfButton} /></View>
       {props.saveError ? <View style={styles.inlineError}><Ionicons name="alert-circle" size={17} color={colors.danger} /><Text selectable style={styles.inlineErrorText}>{props.saveError}</Text></View> : null}
+    </View>
+  );
+}
+
+/** Possible duplicate: nothing is issued until the operator compares the muzzles and explicitly submits it for review. */
+function DuplicateReviewStep({ result, probeUri, matchT, reviewT, saving, saveError, onSubmit, onBack, onExit }: { result: RegisterResult; probeUri: string | null; matchT: number; reviewT: number; saving: boolean; saveError: string; onSubmit: (note: string) => void; onBack: () => void; onExit: () => void }) {
+  const [note, setNote] = useState('');
+  const match = result.match;
+  const valid = note.trim().length >= 10;
+  return (
+    <View style={styles.stepContent}>
+      <DecisionBanner decision="REVIEW_REQUIRED" subtitle={`POSSIBLE DUPLICATE · similarity ${result.score?.toFixed(3) ?? '—'} across ${result.templatesSearched ?? 0} templates. No MOOZZLE ID has been issued.`} />
+      <Card style={styles.formCard}>
+        <Text style={styles.formSectionTitle}>Compare with the existing enrolment</Text>
+        <View style={styles.compareRow}>
+          <CaptureImage uri={probeUri} label="THIS ANIMAL" size={120} />
+          <Ionicons name="git-compare-outline" size={20} color={colors.muted} />
+          <CaptureImage path={match?.in_scope ? match.reference_image_path : null} label="ENROLLED" size={120} />
+        </View>
+        <Text style={styles.pageDescription}>{match?.in_scope ? `Possible match: ${formatMoozzleId(match.moozzle_id)} · ${match.breed ?? ''} · ${match.farm_name || match.village || ''}` : `Possible match: ${match?.moozzle_id ?? 'an existing animal'} (outside your scope; details withheld).`}</Text>
+        <ScoreMeter score={result.score ?? match?.score ?? 0} upper={matchT} lower={reviewT} upperLabel="Duplicate" />
+        <Text style={styles.pageDescription}>If this is the same animal, do not register it again{match?.in_scope ? ' — open the existing record' : ''}. If you are sure it is a different animal, submit it for duplicate review: it is saved as Pending Review and an authorised reviewer must approve it before its ID is active. Config v{result.configVersion ?? '—'}.</Text>
+      </Card>
+      {match?.in_scope ? <PrimaryButton label="OPEN EXISTING RECORD" icon="document-text-outline" variant="outline" onPress={() => router.push(`/animal/${match.moozzle_id}`)} /> : null}
+      <View style={styles.buttonRow}><PrimaryButton label="Recapture Frames" icon="camera-outline" variant="outline" onPress={onBack} style={styles.halfButton} disabled={saving} /><PrimaryButton label="Cancel Enrolment" variant="soft" onPress={onExit} style={styles.halfButton} disabled={saving} /></View>
+      <Card style={styles.formCard}>
+        <Text style={styles.formSectionTitle}>Submit for duplicate review</Text>
+        <TextField label="Why is this a different animal? (required)" value={note} onChangeText={setNote} placeholder="e.g. different ear tag, colour pattern, owner" multiline />
+        {!valid && note.length > 0 ? <Text style={styles.gateNote}>At least 10 characters.</Text> : null}
+        <PrimaryButton label={saving ? 'Submitting…' : 'Submit for Duplicate Review'} icon="people-outline" variant="blue" onPress={() => onSubmit(note.trim())} disabled={!valid || saving} />
+      </Card>
+      {saveError ? <View style={styles.inlineError}><Ionicons name="alert-circle" size={17} color={colors.danger} /><Text selectable style={styles.inlineErrorText}>{saveError}</Text></View> : null}
     </View>
   );
 }
@@ -681,17 +744,17 @@ interface SuccessSummary {
 
 function SuccessStep({ result, summary, cropUri, isFarmer, onProfile, onIdentify, onRegisterAnother }: { result: RegisterResult; summary: SuccessSummary; cropUri: string | null; isFarmer: boolean; onProfile: () => void; onIdentify: () => void; onRegisterAnother: () => void }) {
   const queued = result.queued;
-  const statusLabel = queued ? 'Queued for Sync' : result.approvalStatus === 'Approved' ? 'Successfully Enrolled' : result.approvalStatus;
+  const statusLabel = queued ? 'Pending — Not Yet Registered' : result.approvalStatus === 'Approved' ? 'Successfully Enrolled' : result.approvalStatus;
   return (
     <View style={styles.stepContent}>
-      <View><Text style={styles.eyebrow}>STEP 4 OF 4</Text><Text style={styles.pageTitle}>Identity Assigned</Text><Text style={styles.pageDescription}>{queued ? 'The connection dropped while saving. The record is on this device and the server re-runs the duplicate check at the next sync; the ID shown is provisional until then.' : isFarmer ? 'Your record has been saved and sent for verification.' : result.approvalStatus === 'Approved' ? 'No registered match was found. The animal and its biometric templates are saved.' : `Saved with status “${result.approvalStatus}”.`}</Text></View>
+      <View><Text style={styles.eyebrow}>STEP 4 OF 4</Text><Text style={styles.pageTitle}>{queued ? 'Pending Server Duplicate Check' : 'Identity Assigned'}</Text><Text style={styles.pageDescription}>{queued ? 'The service was unavailable while saving. Nothing is registered yet: the record waits on this device and the server runs the full duplicate check at the next sync. A possible duplicate is held for your review and never issued an ID automatically.' : result.duplicate ? 'Submitted for duplicate review. The record is Pending Review and must be approved by an authorised reviewer before its ID is active.' : isFarmer ? 'Your record has been saved and sent for verification.' : result.approvalStatus === 'Approved' ? 'No registered match was found. The animal and its biometric templates are saved.' : `Saved with status “${result.approvalStatus}”.`}</Text></View>
       <View style={styles.successCard}>
-        <View style={styles.successIcon}><Ionicons name="checkmark" size={32} color={colors.surface} /></View>
-        <Text style={styles.successKicker}>MOOZZLE ID</Text>
+        <View style={styles.successIcon}><Ionicons name={queued ? 'time-outline' : 'checkmark'} size={32} color={colors.surface} /></View>
+        <Text style={styles.successKicker}>{queued ? 'PROVISIONAL REFERENCE — NOT YET A MOOZZLE ID' : 'MOOZZLE ID'}</Text>
         <Text selectable style={styles.successId}>{formatMoozzleId(result.moozzleId)}</Text>
         <Pill label={statusLabel} tone={queued || result.approvalStatus !== 'Approved' ? 'amber' : 'green'} />
         {result.score !== null ? <Text style={styles.successDisclaimer}>1:N best similarity {result.score.toFixed(3)} across {result.templatesSearched ?? 0} templates · {summary.captures} templates stored · {ENGINE_MODEL}</Text> : null}
-        {result.duplicate ? <Text style={styles.successDisclaimer}>Uncertain similarity to {result.match?.in_scope ? formatMoozzleId(result.match.moozzle_id) : 'an existing animal'} — sent for manual review instead of being merged.</Text> : null}
+        {result.duplicate ? <Text style={styles.successDisclaimer}>Possible duplicate of {result.match?.in_scope ? formatMoozzleId(result.match.moozzle_id) : 'an existing animal'} — submitted for manual review, never merged automatically.</Text> : null}
       </View>
       <Card style={styles.summaryCard}><CaptureImage uri={cropUri} label="MUZZLE" size={92} /><View style={styles.summaryGrid}><SummaryItem label="Species" value={summary.animalType} /><SummaryItem label="Breed" value={summary.breed} /><SummaryItem label="Sex" value={summary.sex} /><SummaryItem label="Age" value={formatAge(summary.ageYears, summary.ageMonths)} /><SummaryItem label="Age group" value={summary.ageGroup ?? '—'} /><SummaryItem label="Status I" value={summary.productionStatus ?? '—'} /><SummaryItem label="Status II" value={summary.pregnancyStatus ?? '—'} /><SummaryItem label="Dairy society" value={summary.dairySociety === 'yes' ? 'YES' : summary.dairySociety === 'no' ? 'NO' : '—'} /><SummaryItem label="Location" value={`${summary.village}, ${summary.stateName}`} /><SummaryItem label="Frames" value={`${summary.captures} accepted`} /><SummaryItem label="Registered" value={summary.registeredAt ? formatLocalDateTime(summary.registeredAt) : '—'} /><SummaryItem label="GPS" value={summary.gps ? `${formatCoordinate(summary.gps.latitude, 'N', 'S')}, ${formatCoordinate(summary.gps.longitude, 'E', 'W')}${summary.gps.accuracy !== null ? ` · ±${Math.round(summary.gps.accuracy)} m` : ''}` : '—'} /></View></Card>
       {!queued ? <PrimaryButton label="VIEW ANIMAL PROFILE" icon="document-text-outline" onPress={onProfile} /> : null}

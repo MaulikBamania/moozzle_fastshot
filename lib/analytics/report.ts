@@ -1,6 +1,7 @@
 import { toCsv } from '@/lib/export';
+import { assessGoal, GOAL_STATUS_LABELS, GOALS } from '@/lib/analytics/goals';
+import { formatCi, wilson } from '@/lib/analytics/statistics';
 import {
-  benchmark,
   FAR_TARGET,
   formatRate,
   formatScore,
@@ -77,11 +78,12 @@ function curveSvg(points: CurvePoint[], eer: EerPoint | null, review: number, ma
     <path d="${line('frr')}" fill="none" stroke="${FRR_COLOR}" stroke-width="2"/>${eerDot}</svg>`;
 }
 
-function benchmarkCell(value: number | null, target: number): string {
-  const state = benchmark(value, target);
-  const label = state === 'pass' ? 'Meets target' : state === 'fail' ? 'Above target' : 'Insufficient labelled trials';
-  const color = state === 'pass' ? '#047857' : state === 'fail' ? '#b91c1c' : '#64748b';
-  return `<span style="color:${color};font-weight:700">${label}</span>`;
+/** Goal status from the 95 % confidence interval, never from the point estimate alone. */
+function benchmarkCell(k: number, n: number, target: number): string {
+  const p = wilson(k, n);
+  const state = assessGoal(p, target);
+  const color = state === 'supported' ? '#047857' : state === 'not_met' ? '#b91c1c' : '#64748b';
+  return `${esc(formatCi(p, 4))} · <span style="color:${color};font-weight:700">${esc(GOAL_STATUS_LABELS[state])}</span>`;
 }
 
 export function buildReportHtml(input: ReportInput): string {
@@ -98,7 +100,7 @@ export function buildReportHtml(input: ReportInput): string {
     .slice(0, 300)
     .map((r) => `<tr><td>${esc(formatTimestamp(r.created_at))}</td><td>${esc(r.moozzle_id ?? '—')}</td><td>${esc(SCAN_TYPE_LABELS[r.scan_type])}</td><td>${formatScore(r.similarity)}</td><td>${esc(r.outcome.replace('_', ' '))}</td><td>${formatScore(r.quality_score)}</td><td>${esc(verdictOf(r))}</td></tr>`)
     .join('');
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=794"/><title>MOOZZLE FRR / FAR Report</title><style>
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=794"/><title>MOOZZLE 1:1 Verification FAR / FRR Report</title><style>
   @page { size: A4; margin: 14mm 12mm; }
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { margin: 0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a; font-size: 10.5px; }
@@ -125,14 +127,14 @@ export function buildReportHtml(input: ReportInput): string {
   tr { page-break-inside: avoid; }
 </style></head><body><div id="page">
   <div class="hdr">
-    <div><div class="brand">MOOZZLE</div><div class="sub">BIOMETRIC SCAN ANALYTICS · FRR / FAR REPORT</div></div>
+    <div><div class="brand">MOOZZLE</div><div class="sub">1:1 VERIFICATION · FAR / FRR REPORT</div></div>
     <div class="meta">Generated ${esc(formatTimestamp(input.generatedAt.toISOString()))}<br/>Prepared by ${esc(input.preparedBy)}<br/>Scope: ${esc(input.scopeLabel)} · Range: ${esc(input.rangeLabel)} · Species: ${esc(input.speciesLabel)}</div>
   </div>
 
   <h2>Executive summary</h2>
   <div class="kpis">
-    ${kpi('False Acceptance Rate', formatRate(s.far, 3), `${s.fp} of ${s.impostor} impostor trials · target &lt; 0.01% · ${benchmarkCell(s.far, FAR_TARGET)}`)}
-    ${kpi('False Rejection Rate', formatRate(s.frr), `${s.fn} of ${s.genuine} genuine trials · target &lt; 1.0% · ${benchmarkCell(s.frr, FRR_TARGET)}`)}
+    ${kpi('False Acceptance Rate', formatRate(s.far, 4), `${s.fp} of ${s.impostor} impostor trials · proposed goal ${esc(GOALS.far.targetLabel)} · ${benchmarkCell(s.fp, s.impostor, FAR_TARGET)}`)}
+    ${kpi('False Rejection Rate', formatRate(s.frr), `${s.fn} of ${s.genuine} genuine trials · proposed goal ${esc(GOALS.frr.targetLabel)} · ${benchmarkCell(s.fn, s.genuine, FRR_TARGET)}`)}
     ${kpi('Equal Error Rate', input.eer ? formatRate(input.eer.rate) : '—', input.eer ? `at threshold ${input.eer.threshold.toFixed(3)} (${esc(input.curveSource)})` : 'needs genuine and impostor trials')}
     ${kpi('Accuracy', formatRate(s.accuracy), `${s.tp + s.tn} correct of ${s.genuine + s.impostor} labelled`)}
     ${kpi('Precision', formatRate(s.precision), 'True Match / all accepts')}
@@ -148,7 +150,7 @@ export function buildReportHtml(input: ReportInput): string {
     <div style="background:#fee2e2;color:#991b1b">False Accept: ${s.fp}</div>
     <div style="background:#dcfce7;color:#166534">True Non-Match: ${s.tn}</div>
   </div>
-  <div class="note">An accept is a Confirmed match (1:N ≥ ${input.matchThreshold.toFixed(2)}, 1:1 ≥ ${input.verifyThreshold.toFixed(2)}). Review (≥ ${input.reviewThreshold.toFixed(2)}) and No-match scans are counted as rejections.</div>
+  <div class="note">1:1 verification only. An accept is a Confirmed match at the 1:1 threshold ≥ ${input.verifyThreshold.toFixed(2)}; Review (≥ ${input.reviewThreshold.toFixed(2)}) and No-match outcomes count as rejections. 1:N identification (FPIR / FNIR) is reported separately and never mixed with FAR / FRR. Goals are proposed validation targets, not performance claims; independent review is required before publication.</div>
 
   <h2>Decision threshold curve — ${esc(input.curveSource)}</h2>
   <div class="legend"><span><span class="sw" style="background:${FAR_COLOR}"></span>FAR (impostors accepted)</span><span><span class="sw" style="background:${FRR_COLOR}"></span>FRR (genuine rejected)</span></div>
@@ -159,7 +161,7 @@ export function buildReportHtml(input: ReportInput): string {
 
   <h2>Biometric scan audit log${input.rows.length > 300 ? ' (newest 300 of ' + input.rows.length + ')' : ''}</h2>
   ${input.rows.length ? `<table><thead><tr><th>Timestamp</th><th>Animal ID</th><th>Scan type</th><th>Similarity</th><th>Outcome</th><th>Quality</th><th>Ground truth</th></tr></thead><tbody>${logRows}</tbody></table>` : '<div class="note">No scans in this range.</div>'}
-  <div class="note">FAR / FRR are computed only from scans whose ground truth was verified by an authorised reviewer. Unlabelled scans are listed but excluded from error rates. Out-of-scope animal IDs are masked.</div>
+  <div class="note">FAR / FRR are computed only from controlled, labelled genuine / impostor trials. Image-quality failures are excluded and reported as FTA. Unlabelled scans are listed but excluded from error rates. Out-of-scope animal IDs are masked.</div>
 </div></body></html>`;
 }
 

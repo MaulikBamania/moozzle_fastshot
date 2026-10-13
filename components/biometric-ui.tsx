@@ -8,9 +8,11 @@ import { Text } from '@/components/translated-text';
 import { colors, PipelineList, PrimaryButton } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
 import { QUALITY_HINTS, signedCaptureUrl, STAGE_LABELS } from '@/lib/biometric/engine';
-import type { MuzzleAnalysis, PipelineStage, QualityStatus } from '@/store/types';
+import { GOOD_STATUS, REASON_GUIDANCE } from '@/lib/biometric/quality';
+import type { CaptureSource, MuzzleAnalysis, PipelineStage, QualityStatus } from '@/store/types';
 
-const GOOD: QualityStatus = 'GOOD IMAGE — READY TO SCAN';
+const GOOD: QualityStatus = GOOD_STATUS;
+const WARN_STATUSES: QualityStatus[] = ['MOVE CLOSER', 'PATTERN NOT CLEAR — RETAKE', 'TOO BRIGHT — REDUCE GLARE', 'MUZZLE OBSTRUCTED — CLEAR THE NOSE'];
 
 export function errorText(error: unknown, fallback: string): string {
   if (typeof error === 'object' && error !== null && 'message' in error && typeof (error as { message: unknown }).message === 'string') {
@@ -28,7 +30,7 @@ export function MuzzleCapture({
   disabled = false,
   feedback,
 }: {
-  onFrame: (uri: string) => void;
+  onFrame: (uri: string, source: CaptureSource) => void;
   busy: boolean;
   captureLabel?: string;
   disabled?: boolean;
@@ -61,7 +63,7 @@ export function MuzzleCapture({
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.9 });
       if (!photo?.uri) throw new Error('No frame was returned by the camera.');
-      onFrame(photo.uri);
+      onFrame(photo.uri, 'camera');
     } catch (caught) {
       console.error('Camera capture failed', caught);
       setError(errorText(caught, 'The camera could not capture a frame. Try again or upload a photo.'));
@@ -73,7 +75,7 @@ export function MuzzleCapture({
     try {
       const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.92, allowsEditing: false });
       if (result.canceled || !result.assets[0]?.uri) return;
-      onFrame(result.assets[0].uri);
+      onFrame(result.assets[0].uri, 'upload');
     } catch (caught) {
       console.error('Photo upload failed', caught);
       setError(errorText(caught, 'The photo could not be opened. Choose a JPEG or PNG image.'));
@@ -81,7 +83,7 @@ export function MuzzleCapture({
   }, [onFrame]);
 
   const status = feedback?.status;
-  const tone = !status ? 'idle' : status === GOOD ? 'good' : status === 'MOVE CLOSER' || status === 'PATTERN NOT CLEAR — RETAKE' ? 'warn' : 'bad';
+  const tone = !status ? 'idle' : status === GOOD ? 'good' : WARN_STATUSES.includes(status) ? 'warn' : 'bad';
 
   return (
     <View style={styles.wrap}>
@@ -142,14 +144,17 @@ export function QualityBanner({ analysis }: { analysis: MuzzleAnalysis | null })
     );
   }
   const good = analysis.status === GOOD;
-  const warn = analysis.status === 'MOVE CLOSER' || analysis.status === 'PATTERN NOT CLEAR — RETAKE';
+  const warn = WARN_STATUSES.includes(analysis.status);
   const color = good ? colors.primary : warn ? colors.warning : colors.danger;
   return (
     <View accessibilityRole="alert" style={[styles.banner, { backgroundColor: good ? colors.primaryLight : warn ? colors.warningLight : colors.dangerLight }]}>
       <Ionicons name={good ? 'checkmark-circle' : 'alert-circle'} size={18} color={color} />
       <View style={styles.flex}>
         <Text style={[styles.bannerTitle, { color }]}>{analysis.status}</Text>
-        <Text style={styles.bannerHint}>{analysis.hint || QUALITY_HINTS[analysis.status]}</Text>
+        {good || analysis.reasons.length === 0 ? <Text style={styles.bannerHint}>{analysis.hint || QUALITY_HINTS[analysis.status]}</Text> : null}
+        {!good ? analysis.reasons.map((reason) => (
+          <Text key={reason} style={styles.bannerHint}>• {REASON_GUIDANCE[reason].cause} {REASON_GUIDANCE[reason].fix}</Text>
+        )) : null}
         {analysis.metrics ? (
           <Text selectable style={styles.metrics}>
             Q {Math.round(analysis.qualityScore * 100)}% · focus {analysis.metrics.sharpness.toFixed(0)} · light {analysis.metrics.brightness.toFixed(0)} · contrast {analysis.metrics.contrast.toFixed(0)} · fill {Math.round(analysis.metrics.fill * 100)}% · {analysis.processingMs} ms

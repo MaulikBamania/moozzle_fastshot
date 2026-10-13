@@ -318,6 +318,11 @@ export interface RegisterPayload {
   quality_metrics: QualityMetrics[];
   save_as_draft: boolean;
   source: string;
+  /** Template model that produced the embeddings; the server rejects a mismatch with production. */
+  model?: string;
+  /** Explicit operator submission of a possible duplicate for manual review (never automatic). */
+  duplicate_review_ack?: boolean;
+  duplicate_review_note?: string;
 }
 
 export interface ServicePayload {
@@ -389,8 +394,25 @@ export type QualityStatus =
   | 'MOVE CLOSER'
   | 'TOO BLURRY — RETAKE'
   | 'TOO DARK — IMPROVE LIGHTING'
+  | 'TOO BRIGHT — REDUCE GLARE'
+  | 'MUZZLE OBSTRUCTED — CLEAR THE NOSE'
+  | 'RESOLUTION TOO LOW — RETAKE'
   | 'MUZZLE NOT DETECTED'
   | 'PATTERN NOT CLEAR — RETAKE';
+
+/** Specific pre-comparison quality failure causes (Failure to Acquire), reported separately from matching errors. */
+export type QualityReason =
+  | 'muzzle_not_detected'
+  | 'too_far'
+  | 'blur'
+  | 'too_dark'
+  | 'overexposed'
+  | 'obstructed'
+  | 'low_resolution'
+  | 'pattern_not_visible';
+
+/** Field capture condition derived from measured lighting. */
+export type CaptureCondition = 'normal' | 'low_light' | 'bright_glare';
 
 export type PipelineStage = 'normalize' | 'detect' | 'crop' | 'quality' | 'embed' | 'search';
 
@@ -416,7 +438,15 @@ export interface QualityMetrics {
 
 export interface MuzzleAnalysis {
   status: QualityStatus;
+  /** Every failed check, most important first; empty when the frame is accepted. */
+  reasons: QualityReason[];
   hint: string;
+  /** Source image size before normalisation. */
+  sourceWidth: number;
+  sourceHeight: number;
+  condition: CaptureCondition;
+  /** 'camera' for a live capture, 'upload' for a library photo. */
+  source: CaptureSource;
   qualityScore: number;
   metrics: QualityMetrics | null;
   detection: MuzzleDetection;
@@ -444,15 +474,38 @@ export interface MatchCandidate {
 }
 
 export type MatchOutcome = 'match' | 'no_match' | 'uncertain';
+export type CaptureSource = 'camera' | 'upload';
+/** Why the server reached its outcome. */
+export type DecisionReason = 'accepted' | 'between_thresholds' | 'ambiguous_margin' | 'below_review_threshold';
+/** Data tier of a scan: controlled lab benchmark, field pilot, or production operation. */
+export type DataSource = 'laboratory' | 'field_pilot' | 'production';
+
+/** The five user-facing outcomes of a biometric attempt. */
+export type BiometricDecision =
+  | 'MATCH_CONFIRMED'
+  | 'REVIEW_REQUIRED'
+  | 'NO_ACCEPTED_MATCH'
+  | 'IMAGE_QUALITY_INSUFFICIENT'
+  | 'SERVICE_UNAVAILABLE';
 
 export interface IdentifyResult {
   scan_id: string;
   outcome: MatchOutcome;
+  decision_reason: DecisionReason;
   top_score: number;
+  second_score: number | null;
+  /** 1:N accept threshold of the production configuration. */
   match_threshold: number;
   review_threshold: number;
+  margin: number;
+  candidate_list_k: number;
+  config_version: number;
+  model_version: string;
   templates_searched: number;
+  /** Enrolled animals (N) searched. */
+  gallery_size: number;
   frames: number;
+  data_source: DataSource;
   candidates: MatchCandidate[];
   image_path: string;
 }
@@ -460,9 +513,14 @@ export interface IdentifyResult {
 export interface VerifyResult {
   scan_id: string;
   outcome: MatchOutcome;
+  decision_reason: DecisionReason;
   score: number;
+  /** 1:1 accept threshold of the production configuration. */
   verify_threshold: number;
   review_threshold: number;
+  config_version: number;
+  model_version: string;
+  data_source: DataSource;
   templates_compared: number;
   animal: MatchCandidate;
 }
@@ -476,6 +534,8 @@ export interface ValidationPayload {
   match_threshold: number;
   review_threshold: number;
   verify_threshold: number;
+  verify_review_threshold?: number;
+  config_version?: number;
   scans: { total: number; match: number; no_match: number; uncertain: number; avg_ms: number | null };
 }
 
@@ -501,16 +561,162 @@ export interface ScanAnalyticsRow {
   moozzle_id: string | null;
   animal_in_scope: boolean;
   species: AnalyticsSpecies | null;
+  species_code: SpeciesCode | null;
+  breed: string | null;
+  age_group: AgeGroup | null;
   ground_truth: GroundTruth | null;
   ground_truth_note: string | null;
   labelled_at: string | null;
+  decision_reason: DecisionReason | string;
+  /** 1:N label: true when the searched animal was enrolled (mated search). */
+  mated: boolean | null;
+  /** 1-based rank of the true mate in the candidate list; null when absent or non-mated. */
+  mate_rank: number | null;
+  candidate_scores: number[];
+  config_version: number | null;
+  model_version: string | null;
+  data_source: DataSource;
+  test_session_id: string | null;
+  device_model: string;
+  capture_condition: string;
+  review_status: 'none' | 'requested' | 'resolved';
+  review_decision: ReviewDecision | null;
+  can_label: boolean;
+}
+
+export type AcquisitionEventType = 'failure_to_acquire' | 'service_unavailable' | 'failure_to_enrol';
+export type BiometricOperation = 'identify' | 'verify' | 'enrol';
+
+export interface AcquisitionEventRow {
+  id: string;
+  created_at: string;
+  operation: BiometricOperation;
+  event_type: AcquisitionEventType;
+  reason_code: string;
+  quality_status: string;
+  quality_score: number | null;
+  frames_attempted: number;
+  frames_accepted: number;
+  device_model: string;
+  capture_condition: string;
+  model_version: string | null;
+  config_version: number | null;
+  data_source: DataSource;
+  test_session_id: string | null;
+}
+
+export interface TestSessionRow {
+  id: string;
+  name: string;
+  protocol_reference: string;
+  data_source: Exclude<DataSource, 'production'>;
+  dataset_split: 'calibration' | 'evaluation';
+  device_model: string;
+  capture_condition: string;
+  status: 'open' | 'closed';
+  opened_at: string;
+  closed_at: string | null;
+  own: boolean;
+  created_role: string;
+  subjects: string[];
+  subject_count: number;
+  /** Subjects that also appear in a session of the other split (leakage). */
+  subject_overlap: number;
+}
+
+export interface ProductionConfig {
+  config_version: number;
+  model_version: string;
+  verify_accept: number;
+  verify_review: number;
+  identify_accept: number;
+  identify_review: number;
+  identify_margin: number;
+  candidate_list_k: number;
 }
 
 export interface ScanAnalyticsPayload {
   scope: 'own' | 'organisation' | 'platform';
+  deidentified: boolean;
   since: string | null;
+  config: ProductionConfig;
   match_threshold: number;
   review_threshold: number;
   verify_threshold: number;
+  verify_review_threshold: number;
+  gallery_size: number;
   scans: ScanAnalyticsRow[];
+  acquisition_events: AcquisitionEventRow[];
+  test_sessions: TestSessionRow[];
+}
+
+// ---------- Threshold governance ----------
+export type ConfigStatus = 'proposed' | 'approved' | 'production' | 'rejected' | 'retired';
+
+export interface BiometricConfigRow extends ProductionConfig {
+  id: string;
+  status: ConfigStatus;
+  validation_reference: string;
+  reason: string;
+  proposed_by_name: string;
+  proposed_role: string;
+  proposed_at: string;
+  own_proposal: boolean;
+  approved_by_name: string | null;
+  approved_at: string | null;
+  approval_note: string | null;
+  promoted_at: string | null;
+  retired_at: string | null;
+}
+
+export interface ConfigAuditRow {
+  id: string;
+  config_version: number;
+  action: 'seeded' | 'proposed' | 'approved' | 'rejected' | 'promoted' | 'retired';
+  old_values: Partial<ProductionConfig> | null;
+  new_values: Partial<ProductionConfig>;
+  model_version: string;
+  actor_name: string;
+  actor_id: string | null;
+  actor_role: string;
+  reason: string;
+  created_at: string;
+}
+
+export interface ConfigHistoryPayload {
+  configs: BiometricConfigRow[];
+  audit: ConfigAuditRow[];
+  can_propose: boolean;
+  can_approve: boolean;
+}
+
+// ---------- Manual review queue ----------
+export type ReviewDecision = 'confirmed' | 'rejected' | 'inconclusive';
+
+export interface ReviewCandidate extends MatchCandidate {
+  rank: number;
+  can_decide: boolean;
+}
+
+export interface ScanReviewItem {
+  id: string;
+  created_at: string;
+  scan_type: ScanType;
+  outcome: MatchOutcome;
+  decision_reason: string;
+  similarity: number | null;
+  quality_score: number | null;
+  frames: number;
+  requester_role: string;
+  config_version: number | null;
+  model_version: string | null;
+  data_source: DataSource;
+  probe_image_path: string | null;
+  review_status: 'requested' | 'resolved';
+  review_note: string | null;
+  review_decision: ReviewDecision | null;
+  reviewed_at: string | null;
+  review_resolution_note: string | null;
+  review_confirmed_moozzle_id: string | null;
+  candidates: ReviewCandidate[];
 }

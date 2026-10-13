@@ -3,6 +3,7 @@ import * as Crypto from 'expo-crypto';
 import { useMemo } from 'react';
 import { create } from 'zustand';
 import { NO_PERMISSIONS, PERMISSIONS, isLevel, isRole, ROLE_EXPERIENCE, type PermissionMap, type Role } from '@/lib/rbac';
+import { ENGINE_MODEL } from '@/lib/biometric/features';
 import { animalTypeFromCode, deviceUtcOffsetMinutes, speciesCode } from '@/lib/demographics';
 import { supabase } from '@/lib/supabase';
 import { useAppStore } from './useAppStore';
@@ -96,6 +97,8 @@ export interface NewAnimalInput {
   qualityScores: number[];
   qualityMetrics: QualityMetrics[];
   saveAsDraft: boolean;
+  /** Set only when the operator explicitly submits a possible duplicate for manual review, with a reason. */
+  duplicateReviewNote?: string;
 }
 
 export interface NewServiceInput {
@@ -116,9 +119,14 @@ export interface RegisterResult {
   queued: boolean;
   /** True when the server's 1:N search found this animal already registered; no new ID was issued. */
   blocked: boolean;
+  /** Possible duplicate held before any ID was issued; the operator must submit it for review or recapture. */
+  reviewRequired: boolean;
   match: MatchCandidate | null;
   score: number | null;
   templatesSearched: number | null;
+  matchThreshold: number | null;
+  reviewThreshold: number | null;
+  configVersion: number | null;
 }
 
 const initialState: BovineState = {
@@ -376,6 +384,8 @@ function toRegisterPayload(input: NewAnimalInput): RegisterPayload {
     quality_metrics: input.qualityMetrics,
     save_as_draft: input.saveAsDraft,
     source: 'moozzle-app',
+    model: ENGINE_MODEL,
+    ...(input.duplicateReviewNote ? { duplicate_review_ack: true, duplicate_review_note: input.duplicateReviewNote.trim() } : {}),
   };
 }
 
@@ -385,10 +395,14 @@ interface RegisterResponse {
   approval_status?: string;
   duplicate: boolean;
   blocked?: boolean;
+  review_required?: boolean;
   match?: MatchCandidate;
   review_candidate?: MatchCandidate | null;
   score?: number;
   templates_searched?: number;
+  match_threshold?: number;
+  review_threshold?: number;
+  config_version?: number;
 }
 
 export async function createAnimal(input: NewAnimalInput): Promise<RegisterResult> {
@@ -402,14 +416,18 @@ export async function createAnimal(input: NewAnimalInput): Promise<RegisterResul
       useAppStore.getState().enqueue({ kind: 'animal', opId: Crypto.randomUUID(), userId, role, queuedAt: new Date().toISOString(), payload: { ...payload, source: 'offline-queue' } });
     }
     bump();
-    return { id: payload.id, moozzleId: payload.moozzle_id, approvalStatus: input.saveAsDraft ? 'Draft' : 'Queued', duplicate: false, queued: true, blocked: false, match: null, score: null, templatesSearched: null };
+    return { id: payload.id, moozzleId: payload.moozzle_id, approvalStatus: 'Queued', duplicate: false, queued: true, blocked: false, reviewRequired: false, match: null, score: null, templatesSearched: null, matchThreshold: null, reviewThreshold: null, configVersion: null };
   };
   if (!isOnlineNow()) return queue();
   try {
     const result = await rpc<RegisterResponse>('register_animal', { p: payload });
     await afterWrite();
+    const decision = { score: result.score ?? null, templatesSearched: result.templates_searched ?? null, matchThreshold: result.match_threshold ?? null, reviewThreshold: result.review_threshold ?? null, configVersion: result.config_version ?? null };
     if (result.blocked) {
-      return { id: '', moozzleId: result.match?.moozzle_id ?? '', approvalStatus: 'Blocked', duplicate: true, queued: false, blocked: true, match: result.match ?? null, score: result.score ?? null, templatesSearched: result.templates_searched ?? null };
+      return { id: '', moozzleId: result.match?.moozzle_id ?? '', approvalStatus: 'Blocked', duplicate: true, queued: false, blocked: true, reviewRequired: false, match: result.match ?? null, ...decision };
+    }
+    if (result.review_required) {
+      return { id: '', moozzleId: '', approvalStatus: 'Review Required', duplicate: true, queued: false, blocked: false, reviewRequired: true, match: result.match ?? null, ...decision };
     }
     return {
       id: result.id ?? payload.id,
@@ -418,9 +436,9 @@ export async function createAnimal(input: NewAnimalInput): Promise<RegisterResul
       duplicate: result.duplicate,
       queued: false,
       blocked: false,
+      reviewRequired: false,
       match: result.review_candidate ?? null,
-      score: result.score ?? null,
-      templatesSearched: result.templates_searched ?? null,
+      ...decision,
     };
   } catch (error) {
     if (isNetworkError(error)) {
@@ -603,6 +621,13 @@ async function runSync(): Promise<SyncSummary> {
     try {
       if (op.kind === 'animal') {
         const result = await rpc<RegisterResponse>('register_animal', { p: op.payload }, op.payload.moozzle_id);
+        if (result.review_required) {
+          // Never resolved silently during sync: the operator must compare the muzzles and decide.
+          errors += 1;
+          useAppStore.getState().addFailed({ operation: op, error: `POSSIBLE DUPLICATE — REVIEW REQUIRED (similarity ${result.score?.toFixed(3) ?? '—'} to an enrolled animal). No MOOZZLE ID was issued. Register the animal again while online to compare the muzzles and, if appropriate, submit it for duplicate review.`, failedAt: new Date().toISOString(), revoked: false });
+          useAppStore.getState().removeQueued(op.opId);
+          continue;
+        }
         if (result.blocked || !result.moozzle_id) {
           errors += 1;
           useAppStore.getState().addFailed({ operation: op, error: `ANIMAL ALREADY REGISTERED as ${result.match?.moozzle_id ?? 'an existing ID'} (similarity ${result.score?.toFixed(3) ?? '—'}). No duplicate ID was issued.`, failedAt: new Date().toISOString(), revoked: false });

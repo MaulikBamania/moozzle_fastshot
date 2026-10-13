@@ -50,7 +50,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   ownership_transfer: 'Ownership transfer',
   view_reports: 'View reports',
   export_records: 'Export records',
-  change_threshold: 'Change biometric threshold',
+  change_threshold: 'Propose / approve biometric thresholds',
   retire_animal: 'Retire animal',
   view_audit_logs: 'View audit logs',
 };
@@ -72,7 +72,7 @@ export const DEFAULT_MATRIX: Record<Permission, Record<Role, Level>> = {
   ownership_transfer: M(['Authorised', 'Scoped', 'Scoped', 'No', 'No', 'Own request', 'Limited', 'No', 'Scoped', 'No', 'No', 'Via API scope']),
   view_reports: M(['Full', 'Scoped', 'Scoped', 'Own', 'Own', 'Own', 'Scoped', 'Scoped', 'Scoped', 'Own', 'Scoped', 'Technical only']),
   export_records: M(['Authorised', 'Scoped', 'Limited', 'Limited', 'Limited', 'Own', 'Scoped', 'Scoped', 'Limited', 'Limited', 'De-identified', 'Via API scope']),
-  change_threshold: M(['Authorised', 'No', 'No', 'No', 'No', 'No', 'No', 'No', 'No', 'No', 'No', 'No']),
+  change_threshold: M(['Authorised', 'No', 'No', 'No', 'No', 'No', 'No', 'No', 'No', 'No', 'Limited', 'No']),
   retire_animal: M(['Authorised', 'Limited', 'Authorised', 'Request only', 'Request only', 'Request only', 'Request only', 'No', 'Request only', 'No', 'No', 'No']),
   view_audit_logs: M(['Full', 'Scoped', 'Scoped', 'Own', 'Own', 'Own', 'Own', 'Scoped', 'Scoped', 'Own', 'No', 'Technical only']),
 };
@@ -122,6 +122,21 @@ export const LIMITED_HEALTH_TITLES = ['Vaccination', 'Pregnancy Diagnosis', 'Cal
 
 export function canReviewApprovals(role: Role): boolean {
   return role === 'Super Administrator' || role === 'Organisation Administrator' || role === 'Government Officer' || role === 'Livestock Inspector' || role === 'Veterinarian' || role === 'AI Technician';
+}
+
+/** Mirrors can_view_biometric_governance() on the server. */
+export function canViewBiometricPerformance(role: Role): boolean {
+  return role === 'Super Administrator' || role === 'Researcher' || role === 'Organisation Administrator' || role === 'Government Officer';
+}
+
+/** Mirrors can_propose_biometric_config(): Researchers (biometric research) and privileged Super Administrators. */
+export function canProposeThresholds(role: Role, privileged: boolean): boolean {
+  return role === 'Researcher' || (role === 'Super Administrator' && privileged);
+}
+
+/** Only a privileged Super Administrator approves and promotes, and never their own proposal. */
+export function canApproveThresholds(role: Role, privileged: boolean): boolean {
+  return role === 'Super Administrator' && privileged;
 }
 
 export function canRequestService(role: Role): boolean {
@@ -356,8 +371,11 @@ export function canOpen(destination: Destination, role: Role, permissions: Permi
     case 'audit':
       return allows(permissions.view_audit_logs) || permissions.view_audit_logs === 'Technical only';
     case 'reports':
-    case 'analytics':
       return permissions.view_reports !== 'No';
+    case 'analytics':
+    case 'performance':
+      // Biometric performance and threshold governance: authorised administrators and researchers only.
+      return canViewBiometricPerformance(role);
     case 'users':
       return allows(permissions.manage_users);
     case 'permissions':
