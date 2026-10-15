@@ -658,8 +658,9 @@ function CaptureStep(props: CaptureStepProps) {
         feedback={props.feedback}
         duplicate={notice}
         targetBadge={target ? target.badge : 'ALL VIEWS CAPTURED'}
+        guidance={target ? { hint: target.hint, direction: target.direction } : null}
         captureLabel={target ? target.prompt : 'All Views Captured'}
-        uploadLabel={target ? `Upload ${target.title}` : 'All Views Captured'}
+        uploadLabel={target ? `Upload ${target.title} Photo · Gallery` : 'All Views Captured'}
         disabled={!target || !props.online}
       />
       {props.analyzing ? <Card style={styles.processingCard}><EnginePipeline stage={props.stage} includeSearch={false} /></Card> : null}
@@ -712,7 +713,10 @@ function AngleSlotCard({ slot, frame, isTarget, matched, disabled, onSelect, onR
         ) : isTarget ? <Text style={styles.slotTargetText}>NEXT TARGET</Text> : <Text style={styles.slotHint}>Tap to capture this view next</Text>}
       </View>
       {frame ? (
-        <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${slot.title}`} onPress={() => onRemove(slot.index)} hitSlop={8} style={styles.slotRemove}><Ionicons name="trash-outline" size={17} color={colors.danger} /></Pressable>
+        <View style={styles.slotActions}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Retake ${slot.title}`} disabled={disabled} onPress={() => { onRemove(slot.index); onSelect(slot.index); }} style={styles.slotRetake}><Ionicons name="refresh" size={15} color={colors.primary} /><Text style={styles.slotRetakeText}>Retake</Text></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${slot.title}`} disabled={disabled} onPress={() => onRemove(slot.index)} style={styles.slotRemove}><Ionicons name="trash-outline" size={17} color={colors.danger} /></Pressable>
+        </View>
       ) : null}
     </View>
   );
@@ -963,6 +967,9 @@ const styles = StyleSheet.create({
   slotTargetText: { color: '#B45309', fontFamily: Fonts.bold, fontSize: 10, letterSpacing: 1, marginTop: 2 },
   slotHint: { color: colors.muted, fontFamily: Fonts.medium, fontSize: 11, marginTop: 2 },
   slotMatched: { color: colors.danger, fontFamily: Fonts.bold, fontSize: 11, marginTop: 2 },
+  slotActions: { alignItems: 'flex-end', gap: 6 },
+  slotRetake: { minHeight: 36, minWidth: 44, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, borderRadius: 18, backgroundColor: colors.primaryLight },
+  slotRetakeText: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 12 },
   slotRemove: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.dangerLight },
   pressed: { opacity: 0.85 },
   thumbnailRow: { flexDirection: 'row', gap: 8, minHeight: 75, alignItems: 'center' },

@@ -14,14 +14,20 @@ export interface AngleSlot {
   prompt: string;
   /** Viewfinder HUD badge. */
   badge: string;
+  /** Positioning advice shown on the viewfinder while this slot is the target. */
+  hint: string;
+  /** Which way the technician should move the camera for this angle. */
+  direction: GuideDirection;
 }
 
+export type GuideDirection = 'center' | 'left' | 'right' | 'up';
+
 export const ANGLE_SLOTS: readonly AngleSlot[] = [
-  { index: 0, angle: 'front', required: true, title: 'Front View (0°)', subtitle: 'Direct center alignment with nostrils', prompt: 'Capture Front View (0°)', badge: 'TARGET: FRONT VIEW (0°)' },
-  { index: 1, angle: 'left', required: true, title: 'Left View (~15° Left)', subtitle: 'Slight angle from animal’s left', prompt: 'Capture Left View (~15° Left)', badge: 'TARGET: LEFT ANGLE (~15°)' },
-  { index: 2, angle: 'right', required: true, title: 'Right View (~15° Right)', subtitle: 'Slight angle from animal’s right', prompt: 'Capture Right View (~15° Right)', badge: 'TARGET: RIGHT ANGLE (~15°)' },
-  { index: 3, angle: 'additional', required: false, title: 'Additional View', subtitle: 'Nasal bridge / top angle', prompt: 'Capture Additional View', badge: 'TARGET: ADDITIONAL VIEW (OPTIONAL)' },
-  { index: 4, angle: 'additional', required: false, title: 'Additional View', subtitle: 'Nasal bridge / top angle', prompt: 'Capture Additional View', badge: 'TARGET: ADDITIONAL VIEW (OPTIONAL)' },
+  { index: 0, angle: 'front', required: true, title: 'Front View (0°)', subtitle: 'Direct center alignment with nostrils', prompt: 'Capture Front View (0°)', badge: 'TARGET: FRONT VIEW (0°)', hint: 'Hold the camera directly level with the nostrils, 20–30 cm away.', direction: 'center' },
+  { index: 1, angle: 'left', required: true, title: 'Left View (~15° Left)', subtitle: 'Slight angle from animal’s left', prompt: 'Capture Left View (~15° Left)', badge: 'TARGET: LEFT VIEW (~15° LEFT)', hint: 'Step slightly to the animal’s left side and turn the camera ~15° toward the muzzle.', direction: 'left' },
+  { index: 2, angle: 'right', required: true, title: 'Right View (~15° Right)', subtitle: 'Slight angle from animal’s right', prompt: 'Capture Right View (~15° Right)', badge: 'TARGET: RIGHT VIEW (~15° RIGHT)', hint: 'Step slightly to the animal’s right side and turn the camera ~15° toward the muzzle.', direction: 'right' },
+  { index: 3, angle: 'additional', required: false, title: 'Additional View', subtitle: 'Nasal bridge / top angle', prompt: 'Capture Additional View', badge: 'TARGET: ADDITIONAL VIEW (OPTIONAL)', hint: 'Raise the camera slightly to include the nasal bridge above the nostrils.', direction: 'up' },
+  { index: 4, angle: 'additional', required: false, title: 'Additional View', subtitle: 'Nasal bridge / top angle', prompt: 'Capture Additional View', badge: 'TARGET: ADDITIONAL VIEW (OPTIONAL)', hint: 'Raise the camera slightly to include the nasal bridge above the nostrils.', direction: 'up' },
 ];
 
 export const REQUIRED_SLOT_COUNT = ANGLE_SLOTS.filter((slot) => slot.required).length;

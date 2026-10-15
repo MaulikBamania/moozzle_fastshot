@@ -9,6 +9,7 @@ import { colors, PipelineList, PrimaryButton } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
 import { QUALITY_HINTS, signedCaptureUrl, STAGE_LABELS } from '@/lib/biometric/engine';
 import { GOOD_STATUS, REASON_GUIDANCE } from '@/lib/biometric/quality';
+import type { GuideDirection } from '@/lib/biometric/angles';
 import type { CaptureSource, MuzzleAnalysis, PipelineStage, QualityStatus } from '@/store/types';
 
 const GOOD: QualityStatus = GOOD_STATUS;
@@ -22,7 +23,25 @@ export function errorText(error: unknown, fallback: string): string {
   return fallback;
 }
 
-/** Live camera viewfinder with muzzle guide, flip toggle, capture trigger and photo-upload fallback. */
+/** Angle guidance for the viewfinder: positioning advice plus a directional arrow. */
+export interface CaptureGuidance {
+  hint: string;
+  direction: GuideDirection;
+}
+
+const DIRECTION_ICONS: Record<GuideDirection, keyof typeof Ionicons.glyphMap> = {
+  center: 'locate',
+  left: 'arrow-back-circle',
+  right: 'arrow-forward-circle',
+  up: 'arrow-up-circle',
+};
+
+const IS_WEB = process.env.EXPO_OS === 'web';
+
+/**
+ * Live camera viewfinder with muzzle guide, flip/torch toggles, a shutter that is always visible
+ * (it starts the camera first when needed) and a gallery upload alternative.
+ */
 export function MuzzleCapture({
   onFrame,
   busy,
@@ -31,6 +50,7 @@ export function MuzzleCapture({
   disabled = false,
   feedback,
   targetBadge,
+  guidance,
   duplicate,
 }: {
   onFrame: (uri: string, source: CaptureSource) => void;
@@ -41,27 +61,35 @@ export function MuzzleCapture({
   feedback?: MuzzleAnalysis | null;
   /** Angle guidance shown at the top of the viewfinder, e.g. "TARGET: FRONT VIEW (0°)". */
   targetBadge?: string | null;
+  /** Positioning advice and direction arrow for the current target angle. */
+  guidance?: CaptureGuidance | null;
   /** Set when the last frame repeated an accepted frame; replaces the quality banner. */
   duplicate?: DuplicateFrameNotice | null;
 }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
+  const [torch, setTorch] = useState(false);
   const [mountFailed, setMountFailed] = useState(false);
   const [ready, setReady] = useState(false);
+  const [requesting, setRequesting] = useState(false);
   const [error, setError] = useState('');
   const cameraRef = useRef<CameraView>(null);
   // The camera runs only once permission is granted; a mount failure falls back to photo upload.
   const cameraOn = !!permission?.granted && !mountFailed;
+  const blocked = !!permission && !permission.granted && !permission.canAskAgain;
 
   const startCamera = useCallback(async () => {
     setError('');
     setMountFailed(false);
+    setRequesting(true);
     try {
       const result = await requestPermission();
-      if (!result.granted) setError(result.canAskAgain ? 'Camera access was declined. Allow it to scan, or upload a muzzle photo instead.' : 'Camera access is blocked for this app. Enable it in Settings, or upload a muzzle photo.');
+      if (!result.granted) setError(result.canAskAgain ? 'Camera access was declined. Allow it to capture live, or upload a muzzle photo instead.' : 'Camera access is blocked for this app. Enable it in Settings, or upload a muzzle photo.');
     } catch (caught) {
       console.error('Camera permission request failed', caught);
       setError('This device has no available camera. Upload a muzzle photo instead.');
+    } finally {
+      setRequesting(false);
     }
   }, [requestPermission]);
 
@@ -90,17 +118,34 @@ export function MuzzleCapture({
     }
   }, [onFrame]);
 
+  const shutter = useCallback(() => {
+    if (cameraOn) void capture();
+    else if (blocked && !IS_WEB) void Linking.openSettings();
+    else void startCamera();
+  }, [blocked, cameraOn, capture, startCamera]);
+
+  const flip = useCallback(() => {
+    setReady(false);
+    setTorch(false);
+    setFacing((f) => (f === 'back' ? 'front' : 'back'));
+  }, []);
+
   const status = feedback?.status;
   const tone = duplicate ? 'warn' : !status ? 'idle' : status === GOOD ? 'good' : WARN_STATUSES.includes(status) ? 'warn' : 'bad';
+  const torchSupported = cameraOn && !IS_WEB && facing === 'back';
+  const shutterLabel = cameraOn ? (ready ? captureLabel : 'Starting camera…') : blocked && !IS_WEB ? 'Open Settings to Enable Camera' : requesting ? 'Requesting camera…' : `Start Camera · ${captureLabel}`;
+  const shutterDisabled = busy || disabled || requesting || (cameraOn && !ready);
 
   return (
     <View style={styles.wrap}>
       <View style={styles.viewfinder}>
         {cameraOn ? (
           <CameraView
+            key={facing}
             ref={cameraRef}
             style={StyleSheet.absoluteFill}
             facing={facing}
+            enableTorch={torchSupported && torch}
             onCameraReady={() => setReady(true)}
             onMountError={(event) => {
               console.error('Camera mount error', event.message);
@@ -111,20 +156,30 @@ export function MuzzleCapture({
           />
         ) : (
           <View style={styles.cameraOff}>
-            <Ionicons name="camera-outline" size={34} color="#B8E9CC" />
-            <Text style={styles.cameraOffTitle}>Live muzzle camera</Text>
-            <Text style={styles.cameraOffText}>{permission && !permission.granted && !permission.canAskAgain ? 'Camera permission is blocked.' : 'Start the camera, or upload a field photo.'}</Text>
-            {permission && !permission.granted && !permission.canAskAgain && process.env.EXPO_OS !== 'web' ? (
-              <Pressable accessibilityRole="button" onPress={() => void Linking.openSettings()} style={styles.ghostButton}><Text style={styles.ghostText}>Open Settings</Text></Pressable>
-            ) : (
-              <Pressable accessibilityRole="button" onPress={() => void startCamera()} style={styles.ghostButton}><Ionicons name="videocam-outline" size={16} color={colors.surface} /><Text style={styles.ghostText}>Start Camera</Text></Pressable>
-            )}
+            <View style={styles.cameraOffIcon}><Ionicons name={blocked ? 'lock-closed-outline' : 'camera-outline'} size={24} color="#B8E9CC" /></View>
+            <Text style={styles.cameraOffTitle}>{blocked ? 'Camera permission is blocked' : 'Live muzzle camera'}</Text>
+            <Text style={styles.cameraOffText}>
+              {blocked
+                ? IS_WEB ? 'Allow camera access in your browser’s site settings, or upload a photo below.' : 'Enable camera access in Settings, or upload a photo below.'
+                : 'Camera access lets you frame the muzzle live inside the guide. Frames are used only for this AI muzzle check.'}
+            </Text>
           </View>
         )}
         <View pointerEvents="none" style={styles.overlay}>
-          <View style={[styles.oval, tone === 'good' && styles.ovalGood, tone === 'warn' && styles.ovalWarn, tone === 'bad' && styles.ovalBad]} />
-          <Text style={[styles.ovalLabel, duplicate && styles.ovalLabelWarn]}>{duplicate ? 'CHANGE ANGLE' : 'ALIGN MUZZLE'}</Text>
+          <View style={[styles.oval, tone === 'good' && styles.ovalGood, tone === 'warn' && styles.ovalWarn, tone === 'bad' && styles.ovalBad]}>
+            <View style={styles.nostrilRow}>
+              <View style={[styles.nostril, styles.nostrilLeft]} />
+              <View style={styles.bridge} />
+              <View style={[styles.nostril, styles.nostrilRight]} />
+            </View>
+          </View>
+          <Text style={[styles.ovalLabel, duplicate && styles.ovalLabelWarn]}>{duplicate ? 'CHANGE ANGLE' : 'ALIGN NOSTRILS IN GUIDE'}</Text>
         </View>
+        {guidance && guidance.direction !== 'center' ? (
+          <View pointerEvents="none" style={[styles.arrow, guidance.direction === 'left' && styles.arrowLeft, guidance.direction === 'right' && styles.arrowRight, guidance.direction === 'up' && styles.arrowUp]}>
+            <Ionicons name={DIRECTION_ICONS[guidance.direction]} size={34} color="#FBBF24" />
+          </View>
+        ) : null}
         {targetBadge ? (
           <View pointerEvents="none" style={styles.hud}>
             <View style={styles.hudBadge}>
@@ -133,27 +188,42 @@ export function MuzzleCapture({
             </View>
           </View>
         ) : null}
-        {cameraOn ? (
-          <Pressable accessibilityRole="button" accessibilityLabel="Flip camera" onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))} style={styles.flip}>
-            <Ionicons name="camera-reverse-outline" size={20} color={colors.surface} />
-          </Pressable>
+        {guidance ? (
+          <View pointerEvents="none" style={styles.hintBar}>
+            <Ionicons name={DIRECTION_ICONS[guidance.direction]} size={15} color="#FBBF24" />
+            <Text style={styles.hintText}>{guidance.hint}</Text>
+          </View>
         ) : null}
-        {busy ? <View style={styles.busy}><ActivityIndicator color={colors.surface} /></View> : null}
+        {cameraOn ? (
+          <View style={styles.tools}>
+            <Pressable accessibilityRole="button" accessibilityLabel={facing === 'back' ? 'Switch to front camera' : 'Switch to back camera'} onPress={flip} style={styles.toolButton}>
+              <Ionicons name="camera-reverse-outline" size={20} color={colors.surface} />
+            </Pressable>
+            {torchSupported ? (
+              <Pressable accessibilityRole="switch" accessibilityLabel="Torch" accessibilityState={{ checked: torch }} onPress={() => setTorch((on) => !on)} style={[styles.toolButton, torch && styles.toolButtonOn]}>
+                <Ionicons name={torch ? 'flash' : 'flash-off-outline'} size={19} color={torch ? '#0B2735' : colors.surface} />
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+        {busy ? <View style={styles.busy}><ActivityIndicator color={colors.surface} /><Text style={styles.busyText}>AI checking frame…</Text></View> : null}
       </View>
       {duplicate ? <DuplicateFrameBanner notice={duplicate} /> : <QualityBanner analysis={feedback ?? null} />}
       {error ? <Text selectable accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-      {targetBadge ? (
-        // Angle-guided prompts are long, so the actions stack full width.
-        <View style={styles.stack}>
-          {cameraOn ? <PrimaryButton label={captureLabel} icon="scan-outline" onPress={() => void capture()} disabled={busy || disabled || !ready} /> : null}
-          <PrimaryButton label={uploadLabel} icon="image-outline" variant="outline" onPress={() => void upload()} disabled={busy || disabled} />
-        </View>
-      ) : (
-        <View style={styles.row}>
-          <PrimaryButton label={uploadLabel} icon="image-outline" variant="outline" onPress={() => void upload()} disabled={busy || disabled} style={styles.flex} />
-          {cameraOn ? <PrimaryButton label={captureLabel} icon="scan-outline" onPress={() => void capture()} disabled={busy || disabled || !ready} style={styles.flex} /> : null}
-        </View>
-      )}
+      <View style={styles.stack}>
+        <Pressable accessibilityRole="button" accessibilityLabel={shutterLabel} accessibilityState={{ disabled: shutterDisabled }} disabled={shutterDisabled} onPress={shutter}>
+          {({ pressed }) => (
+            <View style={[styles.shutter, shutterDisabled && styles.shutterDisabled, pressed && !shutterDisabled && styles.shutterPressed]}>
+              <View style={styles.shutterRing}>
+                {requesting || (cameraOn && !ready) ? <ActivityIndicator size="small" color={colors.primary} /> : <Ionicons name={cameraOn ? 'camera' : blocked ? 'settings-outline' : 'videocam'} size={22} color={colors.primary} />}
+              </View>
+              <Text style={styles.shutterText}>{shutterLabel}</Text>
+            </View>
+          )}
+        </Pressable>
+        <View style={styles.orRow}><View style={styles.orLine} /><Text style={styles.orText}>OR</Text><View style={styles.orLine} /></View>
+        <PrimaryButton label={uploadLabel} icon="folder-open-outline" variant="outline" onPress={() => void upload()} disabled={busy || disabled} />
+      </View>
     </View>
   );
 }
@@ -273,7 +343,7 @@ export function ScoreMeter({ score, upper, lower, upperLabel = 'Match' }: { scor
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   wrap: { gap: 10 },
-  viewfinder: { height: 300, borderRadius: 18, overflow: 'hidden', backgroundColor: '#0B2735', position: 'relative' },
+  viewfinder: { height: 340, borderRadius: 18, overflow: 'hidden', backgroundColor: '#0B2735', position: 'relative' },
   cameraOff: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, padding: 20, zIndex: 2 },
   cameraOffTitle: { color: colors.surface, fontFamily: Fonts.bold, fontSize: 15 },
   cameraOffText: { color: '#CFE3E8', fontFamily: Fonts.regular, fontSize: 12, textAlign: 'center' },
@@ -295,8 +365,31 @@ const styles = StyleSheet.create({
   dupText: { color: colors.text, fontFamily: Fonts.regular, fontSize: 12, lineHeight: 18, marginTop: 4 },
   dupMeta: { color: '#9A3412', fontFamily: Fonts.semiBold, fontSize: 11, marginTop: 6, fontVariant: ['tabular-nums'] },
   ovalLabel: { color: 'rgba(255,255,255,0.85)', fontFamily: Fonts.bold, fontSize: 10, letterSpacing: 2 },
-  flip: { position: 'absolute', top: 12, right: 12, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(15,23,42,0.55)', alignItems: 'center', justifyContent: 'center', zIndex: 3 },
-  busy: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.45)', alignItems: 'center', justifyContent: 'center', zIndex: 4 },
+  tools: { position: 'absolute', top: 12, right: 12, gap: 8, zIndex: 3 },
+  toolButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(15,23,42,0.6)', alignItems: 'center', justifyContent: 'center' },
+  toolButtonOn: { backgroundColor: '#FBBF24' },
+  busy: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.5)', alignItems: 'center', justifyContent: 'center', gap: 8, zIndex: 4 },
+  busyText: { color: colors.surface, fontFamily: Fonts.semiBold, fontSize: 12, letterSpacing: 0.6 },
+  cameraOffIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(184,233,204,0.12)', alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  nostrilRow: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14 },
+  nostril: { width: 34, height: 24, borderRadius: 14, borderWidth: 2, borderColor: 'rgba(255,255,255,0.75)', backgroundColor: 'rgba(255,255,255,0.08)' },
+  nostrilLeft: { transform: [{ rotate: '-18deg' }] },
+  nostrilRight: { transform: [{ rotate: '18deg' }] },
+  bridge: { width: 2, height: 46, backgroundColor: 'rgba(255,255,255,0.35)' },
+  arrow: { position: 'absolute', zIndex: 3 },
+  arrowLeft: { left: 14, top: '45%' },
+  arrowRight: { right: 14, top: '45%' },
+  arrowUp: { top: 52, alignSelf: 'center' },
+  hintBar: { position: 'absolute', left: 10, right: 10, bottom: 10, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: 'rgba(11,39,53,0.8)', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, zIndex: 3 },
+  hintText: { flex: 1, color: colors.surface, fontFamily: Fonts.medium, fontSize: 12, lineHeight: 16 },
+  shutter: { minHeight: 60, borderRadius: 16, backgroundColor: colors.primary, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 10, paddingRight: 16, boxShadow: '0 6px 16px rgba(5,150,105,0.28)' },
+  shutterDisabled: { opacity: 0.5 },
+  shutterPressed: { opacity: 0.88, transform: [{ scale: 0.99 }] },
+  shutterRing: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surface, borderWidth: 3, borderColor: 'rgba(255,255,255,0.55)', alignItems: 'center', justifyContent: 'center' },
+  shutterText: { flex: 1, color: colors.surface, fontFamily: Fonts.bold, fontSize: 15, lineHeight: 20 },
+  orRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  orLine: { flex: 1, height: 1, backgroundColor: colors.border },
+  orText: { color: colors.muted, fontFamily: Fonts.bold, fontSize: 11, letterSpacing: 1.5 },
   banner: { flexDirection: 'row', gap: 9, padding: 12, borderRadius: 12, alignItems: 'flex-start' },
   bannerIdle: { backgroundColor: colors.slateLight },
   bannerTitle: { fontFamily: Fonts.bold, fontSize: 13, letterSpacing: 0.4 },
