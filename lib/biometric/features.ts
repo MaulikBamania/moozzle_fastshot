@@ -60,7 +60,48 @@ export function measureQuality(img: GrayImage, fill: number): QualityMetrics {
     sharpness: round(sharpness, 1),
     overexposed: round(bright / n, 3),
     fill: round(fill, 3),
+    specular: round(measureSpecular(img), 3),
   };
+}
+
+/** Pixels at or above this luminance are treated as clipped specular highlights. */
+const SPECULAR_LEVEL = 240;
+/** A specular pixel must stand this far above its local neighbourhood mean (point-source, not even brightness). */
+const SPECULAR_STEP = 35;
+const SPECULAR_RADIUS = 6;
+
+/**
+ * Point-source flash glare: share of near-saturated pixels that sit well above the mean of their
+ * (2r+1)² neighbourhood. A summed-area table keeps this O(n). Uniformly bright skin scores low here;
+ * burst-flash hot spots on wet ridges score high.
+ */
+export function measureSpecular(img: GrayImage): number {
+  const { data, width, height } = img;
+  if (width === 0 || height === 0) return 0;
+  const stride = width + 1;
+  const integral = new Float64Array(stride * (height + 1));
+  for (let y = 0; y < height; y += 1) {
+    let rowSum = 0;
+    for (let x = 0; x < width; x += 1) {
+      rowSum += data[y * width + x];
+      integral[(y + 1) * stride + x + 1] = integral[y * stride + x + 1] + rowSum;
+    }
+  }
+  let hits = 0;
+  for (let y = 0; y < height; y += 1) {
+    const y0 = Math.max(0, y - SPECULAR_RADIUS);
+    const y1 = Math.min(height, y + SPECULAR_RADIUS + 1);
+    for (let x = 0; x < width; x += 1) {
+      const value = data[y * width + x];
+      if (value < SPECULAR_LEVEL) continue;
+      const x0 = Math.max(0, x - SPECULAR_RADIUS);
+      const x1 = Math.min(width, x + SPECULAR_RADIUS + 1);
+      const area = (x1 - x0) * (y1 - y0);
+      const sum = integral[y1 * stride + x1] - integral[y0 * stride + x1] - integral[y1 * stride + x0] + integral[y0 * stride + x0];
+      if (value - sum / area >= SPECULAR_STEP) hits += 1;
+    }
+  }
+  return hits / data.length;
 }
 
 /** Composite 0–1 score from the measured metrics. */
@@ -69,7 +110,7 @@ export function qualityScore(m: QualityMetrics): number {
   const light = 1 - clamp01(Math.abs(m.brightness - 135) / 110);
   const contrast = clamp01(m.contrast / 48);
   const fill = clamp01(m.fill / 0.35);
-  const glare = 1 - clamp01(m.overexposed / 0.2);
+  const glare = 1 - clamp01(Math.max(m.overexposed / 0.2, (m.specular ?? 0) / 0.08));
   return round(0.32 * focus + 0.2 * light + 0.2 * contrast + 0.16 * fill + 0.12 * glare, 3);
 }
 

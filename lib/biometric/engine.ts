@@ -22,7 +22,7 @@ import type {
 } from '@/store/types';
 import { BiometricError, ServiceUnavailableError } from './errors';
 import { base64ToBytes, downsample, ENGINE_MODEL, embeddingLiteral, extractEmbedding, measureQuality, qualityScore, rgbaToGray } from './features';
-import { assessQuality, conditionOf, EMPTY_DETECTION, GOOD_STATUS, QUALITY_HINTS, REASON_GUIDANCE, resolutionOk } from './quality';
+import { assessQuality, conditionOf, contaminantSummary, EMPTY_DETECTION, GOOD_STATUS, QUALITY_HINTS, REASON_GUIDANCE, resolutionOk } from './quality';
 import { analyzeBase64Image } from './vision';
 
 export { BiometricError, QUALITY_HINTS, ServiceUnavailableError };
@@ -56,12 +56,21 @@ export const STAGE_LABELS: Record<PipelineStage, string> = {
   search: 'Cosine similarity search against enrolled templates',
 };
 
-const DETECT_PROMPT = `You are the muzzle-detection stage of a cattle/buffalo biometric system.
+const DETECT_PROMPT = `You are the muzzle-detection and surface-inspection stage of a cattle/buffalo biometric system.
 Inspect the photo and answer ONLY with minified JSON, no prose, using exactly these keys:
-{"muzzle_detected":boolean,"species":"cattle"|"buffalo"|"unknown","box":[x,y,w,h],"focus":"sharp"|"soft"|"blurry","lighting":"good"|"dark"|"glare","pattern_visible":boolean,"occlusion":"none"|"partial"|"heavy","notes":string}
+{"muzzle_detected":boolean,"species":"cattle"|"buffalo"|"unknown","framing":"muzzle_closeup"|"head"|"full_body"|"no_animal","box":[x,y,w,h],"focus":"sharp"|"soft"|"blurry","lighting":"good"|"dark"|"glare","flash_glare":boolean,"pattern_visible":boolean,"occlusion":"none"|"partial"|"heavy","water_droplets":boolean,"saliva_mucus":boolean,"debris":boolean,"foreign_object":boolean,"contaminant_description":string|null,"notes":string}
 Rules: muzzle_detected is true only if the bare nose pad (nasal planum with nostrils) of a bovine is visible.
+framing: "muzzle_closeup" when the nose pad fills a large part of the frame; "head" when the whole head or face is shown; "full_body" when most of the animal's body is shown; "no_animal" when no bovine is present.
 box is the tight bounding box of that nose pad as fractions of image width/height (0-1, origin top-left); use null when not detected.
-pattern_visible is true only if the ridge/groove/bead skin texture of the nose pad can be seen. notes: under 15 words.`;
+pattern_visible is true only if the ridge/groove/bead skin texture of the nose pad can be seen.
+Surface contamination on the nose pad (judge only the nose pad):
+- water_droplets: true for distinct dew drops, water droplets or glossy wet beads of liquid sitting on the skin. The normal thin even moisture of a healthy muzzle and the natural raised skin "beads" of the dermal pattern are NOT droplets.
+- saliva_mucus: true for nasal discharge, saliva strands, mucus streams or foam on or across the nose pad.
+- debris: true for leaves, grass, straw, dirt, mud, dust patches or feed residue on the nose pad.
+- foreign_object: true when human fingers or hands, halter ropes, nose rings, ear tags or other objects cover part of the nose pad ridges.
+- contaminant_description: under 12 words describing what is on the nose pad, or null when clean.
+flash_glare is true when a harsh point-source camera flash creates bright white specular hot spots or whiteout on the moist nose pad; false for soft daylight or diffuse torch light.
+notes: under 15 words.`;
 
 function parseDetection(raw: string): MuzzleDetection {
   const match = raw.match(/\{[\s\S]*\}/);
@@ -86,6 +95,15 @@ function parseDetection(raw: string): MuzzleDetection {
     lighting: pick(parsed.lighting, ['good', 'dark', 'glare'] as const, 'good'),
     patternVisible: parsed.pattern_visible === true,
     occlusion: pick(parsed.occlusion, ['none', 'partial', 'heavy'] as const, 'none'),
+    contaminants: {
+      waterDroplets: parsed.water_droplets === true,
+      salivaMucus: parsed.saliva_mucus === true,
+      debris: parsed.debris === true,
+      foreignObject: parsed.foreign_object === true,
+      description: typeof parsed.contaminant_description === 'string' && parsed.contaminant_description.trim() ? parsed.contaminant_description.trim().slice(0, 100) : null,
+    },
+    flashGlare: parsed.flash_glare === true,
+    framing: pick(parsed.framing, ['muzzle_closeup', 'head', 'full_body', 'no_animal'] as const, box ? 'muzzle_closeup' : 'no_animal'),
     notes: typeof parsed.notes === 'string' ? parsed.notes.slice(0, 120) : '',
   };
 }
@@ -176,10 +194,11 @@ export async function analyzeMuzzle(uri: string, onStage?: (stage: PipelineStage
   }
   const { status, reasons } = assessQuality(detection, metrics, sourceWidth, sourceHeight);
   const guidance = reasons.map((reason) => REASON_GUIDANCE[reason].cause).join(' ');
+  const contaminated = reasons.includes('surface_contaminant');
   return {
     status,
     reasons,
-    hint: status === GOOD_STATUS ? QUALITY_HINTS[status] : `${guidance} ${QUALITY_HINTS[status]}${detection.notes ? ` (${detection.notes})` : ''}`,
+    hint: status === GOOD_STATUS ? QUALITY_HINTS[status] : `${guidance} ${QUALITY_HINTS[status]}${contaminated ? ` Detected: ${contaminantSummary(detection.contaminants)}.` : ''}${detection.notes ? ` (${detection.notes})` : ''}`,
     sourceWidth,
     sourceHeight,
     condition: conditionOf(metrics),

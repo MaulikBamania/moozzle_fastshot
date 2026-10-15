@@ -8,12 +8,12 @@ import { Text } from '@/components/translated-text';
 import { colors, PipelineList, PrimaryButton } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
 import { QUALITY_HINTS, signedCaptureUrl, STAGE_LABELS } from '@/lib/biometric/engine';
-import { GOOD_STATUS, REASON_GUIDANCE } from '@/lib/biometric/quality';
+import { contaminantSummary, GOOD_STATUS, REASON_ALERTS, REASON_CODES, REASON_GUIDANCE } from '@/lib/biometric/quality';
 import type { GuideDirection } from '@/lib/biometric/angles';
-import type { CaptureSource, MuzzleAnalysis, PipelineStage, QualityStatus } from '@/store/types';
+import type { CaptureSource, MuzzleAnalysis, PipelineStage, QualityReason, QualityStatus } from '@/store/types';
 
 const GOOD: QualityStatus = GOOD_STATUS;
-const WARN_STATUSES: QualityStatus[] = ['MOVE CLOSER', 'PATTERN NOT CLEAR — RETAKE', 'TOO BRIGHT — REDUCE GLARE', 'MUZZLE OBSTRUCTED — CLEAR THE NOSE'];
+const WARN_STATUSES: QualityStatus[] = ['MOVE CLOSER — FILL OVAL WITH MUZZLE', 'HARSH FLASH GLARE — USE TORCH OR SHADE NOSE', 'PATTERN NOT CLEAR — RETAKE', 'TOO BRIGHT — REDUCE GLARE', 'MUZZLE OBSTRUCTED — CLEAR THE NOSE'];
 
 export function errorText(error: unknown, fallback: string): string {
   if (typeof error === 'object' && error !== null && 'message' in error && typeof (error as { message: unknown }).message === 'string') {
@@ -146,6 +146,7 @@ export function MuzzleCapture({
             style={StyleSheet.absoluteFill}
             facing={facing}
             enableTorch={torchSupported && torch}
+            flash="off"
             onCameraReady={() => setReady(true)}
             onMountError={(event) => {
               console.error('Camera mount error', event.message);
@@ -252,6 +253,47 @@ export function DuplicateFrameBanner({ notice }: { notice: DuplicateFrameNotice 
   );
 }
 
+const ALERT_TONE: Partial<Record<QualityReason, { border: string; bg: string; icon: string; title: string }>> = {
+  surface_contaminant: { border: colors.danger, bg: colors.dangerLight, icon: colors.danger, title: '#B91C1C' },
+  flash_glare: { border: '#F59E0B', bg: '#FFF7ED', icon: colors.warning, title: '#B45309' },
+  too_far: { border: colors.blue, bg: '#EFF6FF', icon: colors.blue, title: '#1D4ED8' },
+};
+
+/**
+ * High-visibility callouts for the field-actionable failures (contaminated surface, flash glare,
+ * too far). Rendered above the regular cause list in the capture banner and the decision panel.
+ */
+export function SurfaceAlerts({ analysis }: { analysis: MuzzleAnalysis }) {
+  const alerts = analysis.reasons.filter((reason) => REASON_ALERTS[reason]);
+  if (alerts.length === 0) return null;
+  const detected = contaminantSummary(analysis.detection.contaminants);
+  return (
+    <View style={styles.alertStack}>
+      {alerts.map((reason) => {
+        const alert = REASON_ALERTS[reason];
+        const tone = ALERT_TONE[reason];
+        if (!alert || !tone) return null;
+        return (
+          <View key={reason} accessibilityRole="alert" accessibilityLabel={`${alert.title}. ${alert.subtext}`} style={[styles.alert, { backgroundColor: tone.bg, borderColor: tone.border, borderLeftColor: tone.border }]}>
+            <View style={[styles.alertIcon, { backgroundColor: tone.icon }]}><Ionicons name={alert.icon} size={18} color={colors.surface} /></View>
+            <View style={styles.flex}>
+              <Text style={[styles.alertTitle, { color: tone.title }]}>{alert.title}</Text>
+              <Text style={styles.alertText}>{alert.subtext}</Text>
+              {reason === 'surface_contaminant' && detected ? <Text selectable style={[styles.alertMeta, { color: tone.title }]}>Detected: {detected}</Text> : null}
+              <Text selectable style={[styles.alertMeta, { color: tone.title }]}>Code {REASON_CODES[reason]} · frame not embedded or compared</Text>
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+/** Reasons that SurfaceAlerts already explains in full. */
+export function isAlertReason(reason: QualityReason): boolean {
+  return !!REASON_ALERTS[reason];
+}
+
 export function QualityBanner({ analysis }: { analysis: MuzzleAnalysis | null }) {
   if (!analysis) {
     return (
@@ -264,13 +306,16 @@ export function QualityBanner({ analysis }: { analysis: MuzzleAnalysis | null })
   const good = analysis.status === GOOD;
   const warn = WARN_STATUSES.includes(analysis.status);
   const color = good ? colors.primary : warn ? colors.warning : colors.danger;
+  const otherReasons = analysis.reasons.filter((reason) => !isAlertReason(reason));
   return (
+    <View style={styles.alertStack}>
+    {!good ? <SurfaceAlerts analysis={analysis} /> : null}
     <View accessibilityRole="alert" style={[styles.banner, { backgroundColor: good ? colors.primaryLight : warn ? colors.warningLight : colors.dangerLight }]}>
       <Ionicons name={good ? 'checkmark-circle' : 'alert-circle'} size={18} color={color} />
       <View style={styles.flex}>
         <Text style={[styles.bannerTitle, { color }]}>{analysis.status}</Text>
         {good || analysis.reasons.length === 0 ? <Text style={styles.bannerHint}>{analysis.hint || QUALITY_HINTS[analysis.status]}</Text> : null}
-        {!good ? analysis.reasons.map((reason) => (
+        {!good ? otherReasons.map((reason) => (
           <Text key={reason} style={styles.bannerHint}>• {REASON_GUIDANCE[reason].cause} {REASON_GUIDANCE[reason].fix}</Text>
         )) : null}
         {analysis.metrics ? (
@@ -279,6 +324,7 @@ export function QualityBanner({ analysis }: { analysis: MuzzleAnalysis | null })
           </Text>
         ) : null}
       </View>
+    </View>
     </View>
   );
 }
@@ -359,6 +405,12 @@ const styles = StyleSheet.create({
   hudBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: '100%', backgroundColor: '#FBBF24', borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6 },
   hudText: { flexShrink: 1, color: '#0B2735', fontFamily: Fonts.bold, fontSize: 11, letterSpacing: 0.8 },
   stack: { gap: 10 },
+  alertStack: { gap: 8 },
+  alert: { flexDirection: 'row', gap: 11, padding: 13, borderRadius: 14, borderCurve: 'continuous', alignItems: 'flex-start', borderWidth: 1.5, borderLeftWidth: 5 },
+  alertIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  alertTitle: { fontFamily: Fonts.bold, fontSize: 13, letterSpacing: 0.4, lineHeight: 18 },
+  alertText: { color: colors.text, fontFamily: Fonts.regular, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  alertMeta: { fontFamily: Fonts.semiBold, fontSize: 11, marginTop: 6 },
   dupBanner: { flexDirection: 'row', gap: 11, padding: 13, borderRadius: 14, alignItems: 'flex-start', backgroundColor: '#FFF7ED', borderWidth: 1.5, borderColor: '#F59E0B', borderLeftWidth: 5, borderLeftColor: colors.danger },
   dupIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.warning, alignItems: 'center', justifyContent: 'center' },
   dupTitle: { color: '#B45309', fontFamily: Fonts.bold, fontSize: 13, letterSpacing: 0.4, lineHeight: 18 },

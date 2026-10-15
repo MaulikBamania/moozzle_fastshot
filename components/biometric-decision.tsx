@@ -6,6 +6,7 @@ import { Card, colors, PrimaryButton } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
 import { DECISION_COPY } from '@/lib/biometric/decision';
 import { REASON_GUIDANCE } from '@/lib/biometric/quality';
+import { isAlertReason, SurfaceAlerts } from '@/components/biometric-ui';
 import { TIER_LABELS } from '@/lib/analytics/filters';
 import { supabase } from '@/lib/supabase';
 import { useAsyncResource } from '@/lib/use-async-resource';
@@ -48,9 +49,10 @@ export function QualityInsufficientPanel({ analysis, onRecapture }: { analysis: 
   return (
     <View style={styles.stack}>
       <DecisionBanner decision="IMAGE_QUALITY_INSUFFICIENT" subtitle={analysis.status} />
+      <SurfaceAlerts analysis={analysis} />
       <Card style={styles.card}>
         <Text style={styles.kicker}>WHAT WENT WRONG · HOW TO FIX IT</Text>
-        {analysis.reasons.map((reason, index) => (
+        {analysis.reasons.filter((reason) => !isAlertReason(reason)).map((reason, index) => (
           <View key={reason} style={styles.reasonRow}>
             <View style={styles.reasonNumber}><Text style={styles.reasonNumberText}>{index + 1}</Text></View>
             <View style={styles.flex}>
@@ -62,9 +64,9 @@ export function QualityInsufficientPanel({ analysis, onRecapture }: { analysis: 
         <View style={styles.tips}>
           <Text style={styles.tipsTitle}>Field recapture checklist</Text>
           <Text style={styles.tip}>• Restrain the head gently; wait for the animal to stand still.</Text>
-          <Text style={styles.tip}>• Wipe the nose with a dry cloth; remove feed, rope or hands from view.</Text>
-          <Text style={styles.tip}>• Shade from direct sun; avoid flash glare; face daylight in sheds.</Text>
-          <Text style={styles.tip}>• Fill the oval from 15–25 cm and tap to focus before capturing.</Text>
+          <Text style={styles.tip}>• Wipe the nose with a dry cloth; remove water drops, saliva, leaves, mud, feed, rope or hands.</Text>
+          <Text style={styles.tip}>• Turn off burst flash; use a continuous torch LED or diffused daylight, and shade from direct sun.</Text>
+          <Text style={styles.tip}>• Hold the camera 15–30 cm from the nose pad so it fills the oval, then tap to focus.</Text>
         </View>
         <Text style={styles.muted}>This frame was not compared with any enrolled animal and is reported as an acquisition failure (FTA), not as a match or non-match.</Text>
       </Card>

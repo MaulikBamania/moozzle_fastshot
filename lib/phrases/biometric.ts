@@ -3,6 +3,9 @@ export const BIOMETRIC = `
 ALIGN MUZZLE | थूथन संरेखित करें | નસકોરું સીધું રાખો
 GOOD IMAGE — READY TO SCAN | अच्छी छवि — स्कैन के लिए तैयार | સારી છબી — સ્કેન માટે તૈયાર
 MOVE CLOSER | और पास लाएँ | વધુ નજીક લાવો
+MOVE CLOSER — FILL OVAL WITH MUZZLE | और पास लाएँ — अंडाकार को थूथन से भरें | વધુ નજીક લાવો — અંડાકારને નસકોરાથી ભરો
+MUZZLE SURFACE CONTAMINATED — WIPE & RETAKE | थूथन की सतह गंदी — पोंछें और फिर से लें | નસકોરાની સપાટી ગંદી — લૂછો અને ફરી લો
+HARSH FLASH GLARE — USE TORCH OR SHADE NOSE | तेज़ फ्लैश चमक — टॉर्च का उपयोग करें या नाक पर छाया करें | તીવ્ર ફ્લેશ ચમક — ટોર્ચ વાપરો અથવા નાક પર છાંયો કરો
 TOO BLURRY — RETAKE | बहुत धुंधली — फिर से लें | ખૂબ ઝાંખી — ફરી લો
 TOO BLURRY | बहुत धुंधली | ખૂબ ઝાંખી
 TOO DARK — IMPROVE LIGHTING | बहुत अंधेरा — रोशनी सुधारें | ખૂબ અંધારું — પ્રકાશ સુધારો

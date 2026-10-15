@@ -393,7 +393,9 @@ export interface Preferences {
 // ---------- Live biometric engine ----------
 export type QualityStatus =
   | 'GOOD IMAGE — READY TO SCAN'
-  | 'MOVE CLOSER'
+  | 'MOVE CLOSER — FILL OVAL WITH MUZZLE'
+  | 'MUZZLE SURFACE CONTAMINATED — WIPE & RETAKE'
+  | 'HARSH FLASH GLARE — USE TORCH OR SHADE NOSE'
   | 'TOO BLURRY — RETAKE'
   | 'TOO DARK — IMPROVE LIGHTING'
   | 'TOO BRIGHT — REDUCE GLARE'
@@ -411,7 +413,23 @@ export type QualityReason =
   | 'overexposed'
   | 'obstructed'
   | 'low_resolution'
-  | 'pattern_not_visible';
+  | 'pattern_not_visible'
+  /** CONTAMINATED_SURFACE: water droplets, saliva/mucus, leaves, dirt/mud or a foreign object on the nose pad. */
+  | 'surface_contaminant'
+  /** FLASH_GLARE: point-source flash / specular saturation whiting out the moist dermal ridges. */
+  | 'flash_glare';
+
+/** How much of the animal the frame shows; a head or full-body photo is too far for muzzle biometrics. */
+export type SubjectFraming = 'muzzle_closeup' | 'head' | 'full_body' | 'no_animal';
+
+/** AI-classified foreign matter on the planum nasale. Any flag fails the quality pre-check. */
+export interface SurfaceContaminants {
+  waterDroplets: boolean;
+  salivaMucus: boolean;
+  debris: boolean;
+  foreignObject: boolean;
+  description: string | null;
+}
 
 /** Field capture condition derived from measured lighting. */
 export type CaptureCondition = 'normal' | 'low_light' | 'bright_glare';
@@ -427,6 +445,10 @@ export interface MuzzleDetection {
   lighting: 'good' | 'dark' | 'glare';
   patternVisible: boolean;
   occlusion: 'none' | 'partial' | 'heavy';
+  contaminants: SurfaceContaminants;
+  /** AI saw harsh point-source flash / specular whiteout on the nose pad. */
+  flashGlare: boolean;
+  framing: SubjectFraming;
   notes: string;
 }
 
@@ -436,6 +458,8 @@ export interface QualityMetrics {
   sharpness: number;
   overexposed: number;
   fill: number;
+  /** Share of crop pixels that are near-saturated point highlights well above their surroundings (flash glare). */
+  specular?: number;
 }
 
 export interface MuzzleAnalysis {

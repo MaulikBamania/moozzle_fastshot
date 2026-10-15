@@ -7,7 +7,8 @@ import { ruleOfThree, trialsForTarget, upperBound95, wilson } from '@/lib/analyt
 import { eerFromRoc, rocPoints, verificationSummary, verificationTrials } from '@/lib/analytics/verification';
 import { decisionForOutcome, DECISION_COPY } from '@/lib/biometric/decision';
 import { classifyBiometricError, ServiceUnavailableError } from '@/lib/biometric/errors';
-import { assessQuality, EMPTY_DETECTION, GOOD_STATUS } from '@/lib/biometric/quality';
+import { assessQuality, EMPTY_DETECTION, GOOD_STATUS, REASON_CODES } from '@/lib/biometric/quality';
+import { measureSpecular } from '@/lib/biometric/features';
 import { canApproveThresholds, canOpen, canProposeThresholds, defaultPermissions } from '@/lib/rbac';
 import type { AcquisitionEventRow, MuzzleDetection, QualityMetrics, ScanAnalyticsRow } from '@/store/types';
 
@@ -141,7 +142,7 @@ describe('five-outcome decision workflow', () => {
 
 describe('quality pre-check', () => {
   const good: QualityMetrics = { brightness: 130, contrast: 40, sharpness: 200, overexposed: 0.01, fill: 0.3 };
-  const detected: MuzzleDetection = { ...EMPTY_DETECTION, muzzleDetected: true, box: [0.2, 0.2, 0.5, 0.5], focus: 'sharp', patternVisible: true };
+  const detected: MuzzleDetection = { ...EMPTY_DETECTION, muzzleDetected: true, box: [0.2, 0.2, 0.5, 0.5], focus: 'sharp', patternVisible: true, framing: 'muzzle_closeup' };
   it('accepts a good frame', () => {
     expect(assessQuality(detected, good, 1280, 960)).toEqual({ status: GOOD_STATUS, reasons: [] });
   });
@@ -150,6 +151,35 @@ describe('quality pre-check', () => {
     expect(r.reasons).toEqual(expect.arrayContaining(['overexposed', 'blur', 'obstructed']));
     expect(assessQuality(detected, good, 320, 240).reasons[0]).toBe('low_resolution');
     expect(assessQuality(EMPTY_DETECTION, null, 1280, 960).status).toBe('MUZZLE NOT DETECTED');
+  });
+  it('fails a contaminated nose pad with CONTAMINATED_SURFACE guidance', () => {
+    for (const flag of ['waterDroplets', 'salivaMucus', 'debris', 'foreignObject'] as const) {
+      const r = assessQuality({ ...detected, contaminants: { ...detected.contaminants, [flag]: true } }, good, 1280, 960);
+      expect(r.status).toBe('MUZZLE SURFACE CONTAMINATED — WIPE & RETAKE');
+      expect(r.reasons).toContain('surface_contaminant');
+    }
+    expect(REASON_CODES.surface_contaminant).toBe('CONTAMINATED_SURFACE');
+  });
+  it('fails harsh flash glare from measured highlights or the AI flag', () => {
+    expect(assessQuality(detected, { ...good, overexposed: 0.09 }, 1280, 960).status).toBe('HARSH FLASH GLARE — USE TORCH OR SHADE NOSE');
+    expect(assessQuality(detected, { ...good, specular: 0.1 }, 1280, 960).reasons).toContain('flash_glare');
+    expect(assessQuality({ ...detected, flashGlare: true }, good, 1280, 960).reasons).toContain('flash_glare');
+    expect(assessQuality(detected, { ...good, overexposed: 0.07, specular: 0.05 }, 1280, 960).status).toBe(GOOD_STATUS);
+  });
+  it('tells head and full-body photos to move closer instead of "not detected"', () => {
+    expect(assessQuality({ ...EMPTY_DETECTION, framing: 'full_body' }, null, 1280, 960).status).toBe('MOVE CLOSER — FILL OVAL WITH MUZZLE');
+    expect(assessQuality({ ...detected, framing: 'head' }, good, 1280, 960).reasons[0]).toBe('too_far');
+  });
+});
+
+describe('specular glare measurement', () => {
+  it('scores point highlights high and uniform brightness low', () => {
+    const size = 64;
+    const spotted = new Float32Array(size * size).fill(120);
+    for (let i = 0; i < spotted.length; i += 7) spotted[i] = 255;
+    const flat = new Float32Array(size * size).fill(250);
+    expect(measureSpecular({ data: spotted, width: size, height: size })).toBeGreaterThan(0.1);
+    expect(measureSpecular({ data: flat, width: size, height: size })).toBe(0);
   });
 });
 
