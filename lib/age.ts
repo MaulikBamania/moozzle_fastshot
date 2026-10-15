@@ -39,3 +39,9 @@ export function ageInYears(years: number | null | undefined, months?: number | n
   const age = toAge(years, months);
   return Math.round((age.years + age.months / 12) * 100) / 100;
 }
+
+/** Age text for a stored animal; "Age not recorded" when the age was left blank at registration. */
+export function animalAgeText(animal: { age_years?: number | null; age_months?: number | null; age_recorded?: boolean }, short = false): string {
+  if (animal.age_recorded === false) return short ? '—' : 'Age not recorded';
+  return short ? formatAgeShort(animal.age_years, animal.age_months) : formatAge(animal.age_years, animal.age_months);
+}

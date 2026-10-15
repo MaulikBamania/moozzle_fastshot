@@ -4,7 +4,8 @@ import { Platform, Pressable, StyleSheet, View, type ViewStyle } from 'react-nat
 import { Text } from '@/components/translated-text';
 import { AnimalPhoto, approvalTone, colors, formatMoozzleId, Pill } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
-import { formatAgeShort } from '@/lib/age';
+import { tagLabel } from '@/lib/tag-id';
+import { animalAgeText } from '@/lib/age';
 import { ANIMAL_CATEGORIES, type AnimalCategory, animalCategory } from '@/lib/demographics';
 import type { AgeGroup, Animal } from '@/store/types';
 
@@ -188,13 +189,14 @@ export const AnimalDemographicCard = memo(function AnimalDemographicCard({ anima
   const showPregnancy = animal.pregnancy_status === 'PREGNANT' || animal.pregnancy_status === 'NON-PREGNANT';
 
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`Open ${animal.breed} ${formatMoozzleId(animal.moozzle_id)}`} onPress={() => onPress(animal)}>
+    <Pressable accessibilityRole="button" accessibilityLabel={`Open Tag ${tagLabel(animal.tag_id)} · ${animal.breed} ${formatMoozzleId(animal.moozzle_id)}`} onPress={() => onPress(animal)}>
       {({ pressed }) => (
         <View style={[styles.row, pressed && styles.pressed]}>
           <View style={styles.rowTop}>
             <AnimalPhoto animal={animal} size={64} />
             <View style={styles.flex}>
-              <Text selectable style={styles.rowId}>{formatMoozzleId(animal.moozzle_id)}</Text>
+              <Text selectable style={styles.tagPrimary} numberOfLines={1}>{tagLabel(animal.tag_id)}</Text>
+              <Text selectable style={styles.tagSecondary}>MOOZZLE {formatMoozzleId(animal.moozzle_id)}</Text>
               <View style={styles.tagRow}>
                 <View style={styles.speciesTag}>
                   <Text numberOfLines={1} style={styles.speciesTagText}>{category}</Text>
@@ -202,7 +204,7 @@ export const AnimalDemographicCard = memo(function AnimalDemographicCard({ anima
                 <Text numberOfLines={1} style={styles.breedText}>{animal.breed}</Text>
               </View>
               <View style={styles.tagRow}>
-                <Text style={styles.rowMeta}>{animal.sex} · {formatAgeShort(animal.age_years, animal.age_months)}</Text>
+                <Text style={styles.rowMeta}>{animal.sex} · {animalAgeText(animal, true)}</Text>
                 {animal.age_group ? <Pill label={AGE_GROUP_LABEL[animal.age_group]} tone="slate" /> : null}
               </View>
             </View>
@@ -247,6 +249,8 @@ const TONES: Record<Tone, { fg: string; bg: string }> = {
 const CARD_SHADOW = Platform.select<ViewStyle>({ android: { elevation: 2 }, default: { boxShadow: '0 6px 18px rgba(15, 23, 42, 0.06)' } });
 
 const styles = StyleSheet.create({
+  tagPrimary: { color: colors.text, fontFamily: Fonts.bold, fontSize: 18, letterSpacing: 0.6 },
+  tagSecondary: { color: colors.muted, fontFamily: Fonts.semiBold, fontSize: 12, fontVariant: ['tabular-nums'] },
   flex: { flex: 1, minWidth: 0 },
   pressed: { opacity: 0.85 },
   card: { backgroundColor: colors.surface, borderRadius: 20, borderCurve: 'continuous', borderWidth: 1, borderColor: colors.border, overflow: 'hidden', ...CARD_SHADOW },

@@ -5,6 +5,7 @@ import { create } from 'zustand';
 import { NO_PERMISSIONS, PERMISSIONS, isLevel, isRole, ROLE_EXPERIENCE, type PermissionMap, type Role } from '@/lib/rbac';
 import { ENGINE_MODEL } from '@/lib/biometric/features';
 import { animalTypeFromCode, deviceUtcOffsetMinutes, speciesCode } from '@/lib/demographics';
+import { normaliseTagId } from '@/lib/tag-id';
 import { supabase } from '@/lib/supabase';
 import { useAppStore } from './useAppStore';
 import { isOnlineNow, useConnectivity } from './useConnectivity';
@@ -69,19 +70,25 @@ export interface NewAnimalInput {
   /** Stable per registration attempt so retries and sync replays never create a second record. */
   registrationId: string;
   provisionalMoozzleId: string;
+  /** Mandatory ear tag / animal tag. */
+  tagId: string;
+  /** False when the operator left the age unrecorded. */
+  ageRecorded: boolean;
   animalType: AnimalType;
   breed: string;
   sex: Sex;
   ageYears: number;
   ageMonths: number;
-  ageGroup: AgeGroup;
+  /** Null when the age is not recorded (the server then stores no age group). */
+  ageGroup: AgeGroup | null;
   productionStatus: ProductionStatus;
   pregnancyStatus: PregnancyStatus;
   dairySociety: YesNo;
   societyName: string;
   societyCode: string;
   memberCode: string;
-  gps: GpsFix;
+  /** Optional: null when the operator skipped GPS capture. */
+  gps: GpsFix | null;
   /** Device clock at the moment the user submitted the registration. */
   registeredAt: Date;
   ownerName: string;
@@ -352,12 +359,14 @@ function toRegisterPayload(input: NewAnimalInput): RegisterPayload {
   return {
     id: input.registrationId,
     moozzle_id: input.provisionalMoozzleId,
+    tag_id: normaliseTagId(input.tagId),
+    age_recorded: input.ageRecorded,
     species: speciesCode(input.animalType),
     breed: input.breed,
     sex: input.sex === 'Female' ? 'female' : 'male',
     age_years: input.ageYears,
     age_months: input.ageMonths,
-    age_group: input.ageGroup,
+    ...(input.ageGroup ? { age_group: input.ageGroup } : {}),
     production_status: input.productionStatus,
     pregnancy_status: input.pregnancyStatus,
     // Dairy details are submitted only for members; values kept in the form for NO are dropped here.
@@ -365,11 +374,9 @@ function toRegisterPayload(input: NewAnimalInput): RegisterPayload {
     society_name: input.dairySociety === 'yes' ? input.societyName.trim() : null,
     society_code: input.dairySociety === 'yes' ? input.societyCode.trim() : null,
     member_code: input.dairySociety === 'yes' ? input.memberCode.trim() : null,
-    gps_latitude: input.gps.latitude,
-    gps_longitude: input.gps.longitude,
-    gps_accuracy_m: input.gps.accuracy,
-    gps_captured_at: input.gps.capturedAt,
-    gps_mocked: input.gps.mocked,
+    ...(input.gps
+      ? { gps_latitude: input.gps.latitude, gps_longitude: input.gps.longitude, gps_accuracy_m: input.gps.accuracy, gps_captured_at: input.gps.capturedAt, gps_mocked: input.gps.mocked }
+      : {}),
     device_registered_at: input.registeredAt.toISOString(),
     device_utc_offset_minutes: deviceUtcOffsetMinutes(input.registeredAt),
     owner_name: input.ownerName.trim(),
@@ -681,6 +688,8 @@ function toAnimal(row: AnimalRow, owner: OwnerRow | undefined, pending = false):
   return {
     id: row.id,
     moozzle_id: row.moozzle_id,
+    tag_id: row.tag_id ?? '',
+    age_recorded: row.age_recorded ?? true,
     animal_type: animalTypeFromCode(row.species),
     breed: row.breed,
     sex: row.sex === 'male' ? 'Male' : 'Female',
@@ -733,6 +742,8 @@ function queuedAnimal(op: Extract<QueuedOperation, { kind: 'animal' }>): Animal 
       id: p.id,
       user_id: op.userId,
       moozzle_id: p.moozzle_id,
+      tag_id: p.tag_id ?? null,
+      age_recorded: p.age_recorded ?? true,
       species: p.species,
       breed: p.breed,
       sex: p.sex,

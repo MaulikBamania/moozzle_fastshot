@@ -32,8 +32,10 @@ export function FieldError({ message }: { message?: string }) {
 }
 
 /** A labelled single-choice row of chips; locked rows show why the value is fixed. */
-export function ChoiceField<T extends string>({ label, options, value, onChange, error, lockedTo, lockedReason, hint, tone }: {
+export function ChoiceField<T extends string>({ label, options, value, onChange, error, lockedTo, lockedReason, hint, tone, required = true }: {
   label: string;
+  /** Shows the red asterisk; defaults to true. */
+  required?: boolean;
   options: readonly { value: T; label: string }[];
   value: T | null;
   onChange: (value: T) => void;
@@ -47,7 +49,7 @@ export function ChoiceField<T extends string>({ label, options, value, onChange,
   const locked = lockedTo !== undefined && lockedTo !== null;
   return (
     <View style={styles.block}>
-      <FieldLabel label={label} hint={hint} />
+      <FieldLabel label={label} hint={hint} required={required} />
       <View style={styles.chipWrap}>
         {options.map((option) => (
           <OptionChip
@@ -145,7 +147,7 @@ const GPS_TITLES: Record<GpsStatus, string> = {
   error: 'GPS position not available',
 };
 
-export function GpsCard({ status, fix, error, onCapture, onOpenSettings, canOpenSettings, showRequired }: {
+export function GpsCard({ status, fix, error, onCapture, onOpenSettings, canOpenSettings, showRequired, optional = false }: {
   status: GpsStatus;
   fix: GpsFix | null;
   error: string;
@@ -154,6 +156,8 @@ export function GpsCard({ status, fix, error, onCapture, onOpenSettings, canOpen
   canOpenSettings: boolean;
   /** Highlight the card after the user tried to continue without a fix. */
   showRequired: boolean;
+  /** Registration no longer requires GPS; the card then invites, rather than demands, a capture. */
+  optional?: boolean;
 }) {
   const ready = status === 'ready' && fix !== null;
   const locating = status === 'locating';
@@ -165,7 +169,7 @@ export function GpsCard({ status, fix, error, onCapture, onOpenSettings, canOpen
 
   return (
     <View style={styles.block}>
-      <FieldLabel label="GPS Latitude and Longitude" hint="Compulsory · taken from the phone's location services, never typed in" />
+      <FieldLabel label="GPS Latitude and Longitude" required={!optional} hint={`${optional ? 'Optional' : 'Compulsory'} · taken from the phone's location services, never typed in`} />
       <View style={[styles.gpsCard, ready && styles.gpsReady, (problem || (showRequired && !ready && !locating)) && styles.gpsProblem]} accessibilityLiveRegion="polite">
         <View style={styles.gpsHeader}>
           {icon}
@@ -179,7 +183,7 @@ export function GpsCard({ status, fix, error, onCapture, onOpenSettings, canOpen
             <GpsValue label="Captured at" value={formatLocalDateTime(fix.capturedAt)} />
           </View>
         ) : null}
-        {status === 'idle' ? <Text style={styles.gpsBody}>Stand next to the animal and tap Capture GPS. Allow location access when the phone asks — registration cannot continue without it.</Text> : null}
+        {status === 'idle' ? <Text style={styles.gpsBody}>Stand next to the animal and tap Capture GPS. Allow location access when the phone asks{optional ? ' — or skip it, GPS is optional.' : ' — registration cannot continue without it.'}</Text> : null}
         {locating ? <Text style={styles.gpsBody}>Keep the phone still with a clear view of the sky. This can take up to 30 seconds.</Text> : null}
         {problem && error ? <Text selectable style={styles.gpsErrorText}>{error}</Text> : null}
         {status === 'services_off' ? <Text style={styles.gpsBody}>Android: swipe down from the top of the screen and turn on Location. iPhone: Settings → Privacy & Security → Location Services.</Text> : null}

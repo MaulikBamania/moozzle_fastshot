@@ -61,7 +61,7 @@ function RecordsContent() {
       if (status === 'Drafts' && animal.approval_status !== 'Draft') return false;
       if (status === 'Retired' && animal.current_status !== 'Retired') return false;
       if (!q) return true;
-      return [animal.moozzle_id, animal.breed, animal.farm_name, animal.village, animal.district, animal.owner_visible ? animal.owner_name : '', animal.society_name].some((value) => value.replace(/\s/g, '').toLowerCase().includes(q));
+      return [animal.tag_id, animal.moozzle_id, animal.breed, animal.farm_name, animal.village, animal.district, animal.owner_visible ? animal.owner_name : '', animal.society_name].some((value) => value.replace(/\s/g, '').toLowerCase().includes(q));
     });
   }, [animals, breed, category, query, status]);
 
@@ -105,7 +105,7 @@ function RecordsContent() {
           ) : null}
           <PrimaryButton label="+ Register Bovine" onPress={() => router.push('/register')} disabled={!canRegister} variant={canRegister ? 'primary' : 'soft'} />
           {!canRegister ? <Text style={styles.disabledNote}>Your role cannot register animals.</Text> : null}
-          <TextField label="Search" value={query} onChangeText={setQuery} placeholder="MOOZZLE ID, breed, farm or village" autoCapitalize="none" />
+          <TextField label="Search" value={query} onChangeText={setQuery} placeholder="Tag ID, MOOZZLE ID, breed, farm or village" autoCapitalize="none" />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityLabel="Animal category" style={styles.chipScroll} contentContainerStyle={styles.chips}>
             {CATEGORY_FILTERS.map((item) => <OptionChip key={item} label={item} selected={category === item} onPress={() => setCategory(item)} />)}
           </ScrollView>

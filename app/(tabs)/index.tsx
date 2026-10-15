@@ -7,6 +7,7 @@ import { AnimalOverview } from '@/components/animal-overview';
 import { go, TabShell, useIsWide } from '@/components/app-chrome';
 import { AnimalPhoto, Card, colors, DataGate, formatMoozzleId, LogoMark, Pill, PrimaryButton, tr } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
+import { tagLabel } from '@/lib/tag-id';
 import type { AnimalCategory } from '@/lib/demographics';
 import { buildDashboard, type ApiLogRow, type DashCard, type PlatformOverview, type ResearchRow } from '@/lib/dashboard';
 import { canOpen, ROLE_EXPERIENCE, type Role } from '@/lib/rbac';
@@ -274,8 +275,8 @@ function Dashboard() {
             <Pressable key={animal.id} accessibilityRole="button" onPress={() => router.push(`/animal/${animal.moozzle_id}`)} style={({ pressed }) => [styles.animalRow, pressed && styles.pressed]}>
               <AnimalPhoto animal={animal} size={52} />
               <View style={styles.flex}>
-                <Text selectable style={styles.animalId}>{formatMoozzleId(animal.moozzle_id)}</Text>
-                <Text style={styles.animalMeta}>{animal.breed} {animal.animal_type} · {animal.farm_name || animal.village}</Text>
+                <Text selectable style={styles.tagPrimary} numberOfLines={1}>{tagLabel(animal.tag_id)}</Text>
+                <Text style={styles.animalMeta}>{formatMoozzleId(animal.moozzle_id)} · {animal.breed} {animal.animal_type}{animal.farm_name || animal.village ? ` · ${animal.farm_name || animal.village}` : ''}</Text>
               </View>
               <Pill label={animal.approval_status} tone={animal.approval_status === 'Approved' ? 'green' : animal.approval_status === 'Retired' ? 'slate' : 'amber'} />
             </Pressable>
@@ -287,6 +288,8 @@ function Dashboard() {
 }
 
 const styles = StyleSheet.create({
+  tagPrimary: { color: colors.text, fontFamily: Fonts.bold, fontSize: 18, letterSpacing: 0.6 },
+  tagSecondary: { color: colors.muted, fontFamily: Fonts.semiBold, fontSize: 12, fontVariant: ['tabular-nums'] },
   flex: { flex: 1 },
   content: { padding: 16, gap: 14, paddingBottom: 32 },
   hero: { borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },

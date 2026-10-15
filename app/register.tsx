@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Crypto from 'expo-crypto';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { Text } from '@/components/translated-text';
 import {
   AppScreen,
@@ -29,6 +29,7 @@ import { useIsOnline } from '@/store/useConnectivity';
 import type { AgeGroup, AnimalType, CaptureAngle, CaptureSource, DuplicateFrameRejection, GpsFix, MuzzleAnalysis, PipelineStage, PregnancyStatus, ProductionStatus, Sex, YesNo } from '@/store/types';
 import { Fonts } from '@/constants/Typography';
 import { AGE_MAX_MONTHS, AGE_MAX_YEARS, formatAge } from '@/lib/age';
+import { normaliseTagId, TAG_ID_MAX, tagIdError } from '@/lib/tag-id';
 import {
   ageThresholdsFor,
   breedsFor,
@@ -49,11 +50,12 @@ const MAX_FRAMES = ANGLE_SLOTS.length;
 const SAVE_STEPS = ['Uploading accepted muzzle frames (private, encrypted storage)', '1:N duplicate search across every enrolled template', 'Issuing permanent 12-digit MOOZZLE ID & writing audit log'];
 
 const SPECIES_CHOICES = SPECIES_OPTIONS.map((item) => ({ value: item.type, label: item.label }));
+const AGE_KNOWN_CHOICES = [{ value: 'unknown' as const, label: 'NOT KNOWN' }, { value: 'known' as const, label: 'ENTER AGE' }];
 const YES_NO_CHOICES = [{ value: 'yes' as const, label: 'YES' }, { value: 'no' as const, label: 'NO' }];
 const PRODUCTION_CHOICES = [{ value: 'DRY' as const, label: 'DRY' }, { value: 'MILK' as const, label: 'MILK' }, { value: 'NA' as const, label: 'NA' }];
 const PREGNANCY_CHOICES = [{ value: 'PREGNANT' as const, label: 'PREGNANT' }, { value: 'NON-PREGNANT' as const, label: 'NON-PREGNANT' }, { value: 'NA' as const, label: 'NA' }];
 
-type DetailField = 'species' | 'breed' | 'ageGroup' | 'dairy' | 'societyName' | 'societyCode' | 'memberCode' | 'production' | 'pregnancy' | 'gps' | 'location' | 'farm';
+type DetailField = 'tagId' | 'species' | 'breed' | 'ageGroup' | 'dairy' | 'societyName' | 'societyCode' | 'memberCode' | 'production' | 'pregnancy' | 'gps' | 'location' | 'farm';
 type DetailErrors = Partial<Record<DetailField, string>>;
 
 function productionLockReason(type: AnimalType | null, sex: Sex, group: AgeGroup | null): string {
@@ -126,8 +128,11 @@ function RegisterContent() {
   const settings = useBovineStore((state) => state.settings);
   // Species is prefilled only from an AI-detected handoff; the breed always needs an explicit choice.
   const [animalType, setAnimalType] = useState<AnimalType | null>(handed?.detection.species === 'buffalo' ? 'Buffalo' : handed?.detection.species === 'cattle' ? 'Cattle' : null);
+  const [tagId, setTagId] = useState('');
   const [breed, setBreed] = useState('');
   const [sex, setSex] = useState<Sex>('Female');
+  // Age is optional: left "not known" unless the operator chooses to enter it.
+  const [ageKnown, setAgeKnown] = useState(false);
   const [ageYears, setAgeYears] = useState(4);
   const [ageMonths, setAgeMonths] = useState(0);
   const [dairySociety, setDairySociety] = useState<YesNo | null>(null);
@@ -169,32 +174,25 @@ function RegisterContent() {
   const [showCancel, setShowCancel] = useState(false);
 
   const breeds = breedsFor(animalType);
-  const thresholds = useMemo(() => ageThresholdsFor(settings, animalType), [animalType, settings]);
-  const ageGroup = computeAgeGroup(ageYears, ageMonths, thresholds);
-  const canProduce = productionAllowed(animalType, sex, ageGroup);
-  const canBePregnant = pregnancyAllowed(animalType, sex, ageGroup);
-  // Ineligible animals are enforced to NA; eligible ones need an explicit choice (never auto-classified).
-  const productionStatus: ProductionStatus | null = canProduce ? productionChoice : ageGroup && animalType ? 'NA' : null;
-  const pregnancyStatus: PregnancyStatus | null = canBePregnant ? pregnancyChoice : ageGroup && animalType ? 'NA' : null;
+  // Optional species falls back to Cattle — the same default the server applies.
+  const effectiveType: AnimalType = animalType ?? 'Cattle';
+  const thresholds = useMemo(() => ageThresholdsFor(settings, effectiveType), [effectiveType, settings]);
+  const ageGroup = ageKnown ? computeAgeGroup(ageYears, ageMonths, thresholds) : null;
+  const canProduce = productionAllowed(effectiveType, sex, ageGroup);
+  const canBePregnant = pregnancyAllowed(effectiveType, sex, ageGroup);
+  // Ineligible animals (or an unrecorded age) are locked to NA; an unanswered optional status is submitted as NA.
+  const productionStatus: ProductionStatus | null = canProduce ? productionChoice : 'NA';
+  const pregnancyStatus: PregnancyStatus | null = canBePregnant ? pregnancyChoice : 'NA';
 
+  // Only the Tag ID is mandatory. The one other check is a real server constraint: an entered age needs
+  // configured age-group thresholds for the species.
   const detailErrors = useMemo<DetailErrors>(() => {
     const errors: DetailErrors = {};
-    if (!animalType) errors.species = 'Choose the bovine species.';
-    if (animalType && !breed) errors.breed = 'Choose a breed.';
-    if (animalType && !thresholds) errors.ageGroup = 'Age group thresholds are not configured for this species. Ask your administrator to set them in Platform Settings.';
-    if (!dairySociety) errors.dairy = 'Answer YES or NO.';
-    if (dairySociety === 'yes') {
-      if (!societyName.trim()) errors.societyName = 'Society name is required.';
-      if (!societyCode.trim()) errors.societyCode = 'Society code is required.';
-      if (!memberCode.trim()) errors.memberCode = 'Member code is required.';
-    }
-    if (animalType && ageGroup && !productionStatus) errors.production = 'Choose Status I (DRY, MILK or NA).';
-    if (animalType && ageGroup && !pregnancyStatus) errors.pregnancy = 'Choose Status II (PREGNANT, NON-PREGNANT or NA).';
-    if (!gps.fix) errors.gps = 'Capture the GPS location to continue.';
-    if (!owner.trim() || !village.trim() || !district.trim() || !stateName.trim()) errors.location = 'Owner name, village, district and state are required.';
-    if (!isFarmer && farmOptions.length > 0 && !selectedFarmId) errors.farm = 'Choose the assigned farm this animal belongs to.';
+    const tagProblem = tagIdError(tagId);
+    if (tagProblem) errors.tagId = tagProblem;
+    if (ageKnown && !thresholds) errors.ageGroup = 'Age group thresholds are not configured for this species. Choose “Not known” or ask your administrator to set them in Platform Settings.';
     return errors;
-  }, [ageGroup, animalType, breed, dairySociety, district, farmOptions.length, gps.fix, isFarmer, memberCode, owner, pregnancyStatus, productionStatus, selectedFarmId, societyCode, societyName, stateName, thresholds, village]);
+  }, [ageKnown, tagId, thresholds]);
 
   useEffect(() => {
     clearHandoff(null);
@@ -286,7 +284,7 @@ function RegisterContent() {
     const count = Object.keys(detailErrors).length;
     if (count > 0) {
       setShowErrors(true);
-      setDetailsError(detailErrors.gps && count === 1 ? 'GPS location is compulsory. Capture it before continuing.' : `Complete the ${count} highlighted ${count === 1 ? 'field' : 'fields'} before continuing.`);
+      setDetailsError(detailErrors.tagId && count === 1 ? 'Enter the Tag ID (ear tag number) to continue.' : `Fix the ${count} highlighted ${count === 1 ? 'field' : 'fields'} before continuing.`);
       return;
     }
     setDetailsError('');
@@ -302,9 +300,8 @@ function RegisterContent() {
 
   const handleComplete = useCallback(async (duplicateReviewNote?: string) => {
     if (saving || !requiredSlotsFilled(frames.map((frame) => frame.slot))) return;
-    const fix = gps.fix;
-    if (!animalType || !ageGroup || !productionStatus || !pregnancyStatus || !dairySociety || !fix || Object.keys(detailErrors).length > 0) {
-      setSaveError('Some Step 1 details are missing or the GPS location is no longer available. Go back to Details, complete them and capture GPS.');
+    if (Object.keys(detailErrors).length > 0) {
+      setSaveError(detailErrors.tagId ? 'The Tag ID is missing or invalid. Go back to Details and enter the ear tag number.' : 'Some Step 1 details need attention. Go back to Details and fix the highlighted fields.');
       return;
     }
     setSaving(true);
@@ -324,19 +321,21 @@ function RegisterContent() {
       const result = await createAnimal({
         registrationId: registrationKey.current.id,
         provisionalMoozzleId: registrationKey.current.moozzleId,
-        animalType,
-        breed,
-        sex,
-        ageYears,
-        ageMonths,
+        tagId: normaliseTagId(tagId),
+        ageRecorded: ageKnown,
+        animalType: effectiveType,
+        breed: breed || 'Unspecified',
+        sex: isMaleOnlySpecies(effectiveType) ? 'Male' : sex,
+        ageYears: ageKnown ? ageYears : 0,
+        ageMonths: ageKnown ? ageMonths : 0,
         ageGroup,
-        productionStatus,
-        pregnancyStatus,
-        dairySociety,
+        productionStatus: productionStatus ?? 'NA',
+        pregnancyStatus: pregnancyStatus ?? 'NA',
+        dairySociety: dairySociety ?? 'no',
         societyName,
         societyCode,
         memberCode,
-        gps: fix,
+        gps: gps.fix,
         registeredAt: submittedAt,
         ownerName: owner,
         ownerPhone,
@@ -365,13 +364,14 @@ function RegisterContent() {
     } finally {
       setSaving(false);
     }
-  }, [ageGroup, ageMonths, ageYears, animalType, breed, dairySociety, detailErrors, district, farmId, frames, gps.fix, memberCode, owner, ownerPhone, pregnancyStatus, productionStatus, saveAsDraft, saving, selectedFarmId, sex, societyCode, societyName, stateName, village]);
+  }, [ageGroup, ageKnown, ageMonths, ageYears, breed, dairySociety, detailErrors, district, effectiveType, farmId, frames, gps.fix, memberCode, owner, ownerPhone, pregnancyStatus, productionStatus, saveAsDraft, saving, selectedFarmId, sex, societyCode, societyName, stateName, tagId, village]);
 
   const resetWizard = useCallback(() => {
     registrationKey.current = { id: Crypto.randomUUID(), moozzleId: generateMoozzleId() };
     attempts.current = { total: 0, rejected: 0 };
     setRegisteredAt(null);
     setShowErrors(false);
+    setTagId('');
     setStep(1);
     setFrames([]);
     setPreferredSlot(null);
@@ -397,7 +397,7 @@ function RegisterContent() {
         <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={styles.flex} contentContainerStyle={styles.content}>
           <WizardStepper step={step} />
           <TestSessionBanner />
-          {step === 1 && <DetailsStep demographics={{ thresholds, ageGroup, canProduce, canBePregnant, productionStatus, pregnancyStatus, dairySociety, societyName, societyCode, memberCode, onDairy: setDairySociety, onSocietyName: setSocietyName, onSocietyCode: setSocietyCode, onMemberCode: setMemberCode, onProduction: setProductionChoice, onPregnancy: setPregnancyChoice }} errors={showErrors ? detailErrors : {}} gps={gps} animalType={animalType} breed={breed} sex={sex} ageYears={ageYears} ageMonths={ageMonths} stateName={stateName} district={district} village={village} owner={owner} ownerPhone={ownerPhone} farmId={farmId} breeds={breeds} farmOptions={farmOptions.map((farm) => ({ id: farm.id, label: `${farm.name} · ${farm.village}` }))} selectedFarmId={selectedFarmId} onFarm={chooseFarm} isFarmer={isFarmer} error={detailsError} onType={handleTypeChange} onBreed={setBreed} onSex={setSex} onAgeYears={setAgeYears} onAgeMonths={setAgeMonths} onState={setStateName} onDistrict={setDistrict} onVillage={setVillage} onOwner={setOwner} onOwnerPhone={setOwnerPhone} onFarmId={setFarmId} onNext={goToCapture} />}
+          {step === 1 && <DetailsStep demographics={{ thresholds, ageGroup, canProduce, canBePregnant, productionStatus, pregnancyStatus, dairySociety, societyName, societyCode, memberCode, onDairy: setDairySociety, onSocietyName: setSocietyName, onSocietyCode: setSocietyCode, onMemberCode: setMemberCode, onProduction: setProductionChoice, onPregnancy: setPregnancyChoice }} errors={showErrors ? detailErrors : {}} gps={gps} tagId={tagId} onTagId={setTagId} ageKnown={ageKnown} onAgeKnown={setAgeKnown} animalType={animalType} breed={breed} sex={sex} ageYears={ageYears} ageMonths={ageMonths} stateName={stateName} district={district} village={village} owner={owner} ownerPhone={ownerPhone} farmId={farmId} breeds={breeds} farmOptions={farmOptions.map((farm) => ({ id: farm.id, label: `${farm.name} · ${farm.village}` }))} selectedFarmId={selectedFarmId} onFarm={chooseFarm} isFarmer={isFarmer} error={detailsError} onType={handleTypeChange} onBreed={setBreed} onSex={setSex} onAgeYears={setAgeYears} onAgeMonths={setAgeMonths} onState={setStateName} onDistrict={setDistrict} onVillage={setVillage} onOwner={setOwner} onOwnerPhone={setOwnerPhone} onFarmId={setFarmId} onNext={goToCapture} />}
           {step === 2 && (
             <CaptureStep
               frames={frames}
@@ -420,7 +420,7 @@ function RegisterContent() {
             />
           )}
           {step === 3 && <ProcessingStep frames={frames.length} probeUri={frames[0]?.analysis.cropUri ?? frames[0]?.analysis.imageUri ?? null} activeStep={saveStep} saving={saving} saveError={saveError} needsApproval={needsApproval} saveAsDraft={saveAsDraft} blocked={registered?.blocked ? registered : null} reviewRequired={registered?.reviewRequired ? registered : null} onDraft={setSaveAsDraft} onBack={() => { setRegistered(null); setStep(2); }} onComplete={(note) => void handleComplete(note)} onExit={() => router.replace('/(tabs)')} />}
-          {step === 4 && registered && animalType && <SuccessStep result={registered} summary={{ animalType, breed, sex, ageYears, ageMonths, ageGroup, productionStatus, pregnancyStatus, dairySociety, village, stateName, captures: frames.length, gps: gps.fix, registeredAt }} cropUri={frames[0]?.analysis.cropUri ?? null} isFarmer={isFarmer} onProfile={() => router.push(`/animal/${registered.moozzleId}`)} onIdentify={() => router.replace('/(tabs)/identify')} onRegisterAnother={resetWizard} />}
+          {step === 4 && registered && <SuccessStep result={registered} summary={{ tagId: normaliseTagId(tagId), ageKnown, animalType: effectiveType, breed: breed || 'Unspecified', sex: isMaleOnlySpecies(effectiveType) ? 'Male' : sex, ageYears, ageMonths, ageGroup, productionStatus, pregnancyStatus, dairySociety, village, stateName, captures: frames.length, gps: gps.fix, registeredAt }} cropUri={frames[0]?.analysis.cropUri ?? null} isFarmer={isFarmer} onProfile={() => router.push(`/animal/${registered.moozzleId}`)} onIdentify={() => router.replace('/(tabs)/identify')} onRegisterAnother={resetWizard} />}
         </ScrollView>
       </View>
       <Modal visible={showCancel} transparent animationType="fade" onRequestClose={() => setShowCancel(false)}>
@@ -481,6 +481,10 @@ interface DetailsProps {
   demographics: DemographicsState;
   errors: DetailErrors;
   gps: ReturnType<typeof useGpsCapture>;
+  tagId: string;
+  onTagId: (value: string) => void;
+  ageKnown: boolean;
+  onAgeKnown: (value: boolean) => void;
   animalType: AnimalType | null;
   breed: string;
   sex: Sex;
@@ -512,19 +516,57 @@ interface DetailsProps {
   onNext: () => void;
 }
 
+/** The one mandatory field: large, high-contrast and placed first. Input is upper-cased as typed. */
+function TagIdField({ value, onChange, error }: { value: string; onChange: (value: string) => void; error?: string }) {
+  const handleChange = useCallback((text: string) => onChange(text.toUpperCase()), [onChange]);
+  return (
+    <View style={[styles.tagCard, error ? styles.tagCardError : null]}>
+      <View style={styles.tagHeader}>
+        <View style={styles.tagIcon}><Ionicons name="pricetag" size={18} color={colors.surface} /></View>
+        <View style={styles.flex}>
+          <View style={styles.tagLabelRow}>
+            <Text style={styles.tagLabel}>TAG ID</Text>
+            <Text style={styles.requiredMark} accessibilityLabel="required">*</Text>
+          </View>
+          <Text style={styles.tagHint}>Ear tag / animal tag number — mandatory</Text>
+        </View>
+      </View>
+      <TextInput
+        value={value}
+        onChangeText={handleChange}
+        placeholder="e.g. GJ-0458-2291"
+        placeholderTextColor={colors.muted}
+        autoCapitalize="characters"
+        autoCorrect={false}
+        maxLength={TAG_ID_MAX}
+        accessibilityLabel="Tag ID, required"
+        returnKeyType="done"
+        style={styles.tagInput}
+      />
+      <FieldError message={error} />
+    </View>
+  );
+}
+
 function DetailsStep(props: DetailsProps) {
   const { demographics: d, errors, gps } = props;
   const maleOnly = isMaleOnlySpecies(props.animalType);
   const sexHint = props.animalType === 'Bull' ? 'A bull is always male' : props.animalType === 'Bullock' ? 'A bullock is always male' : undefined;
   return (
     <View style={styles.stepContent}>
-      <View><Text style={styles.eyebrow}>STEP 1 OF 4</Text><Text style={styles.pageTitle}>Animal Demographics</Text><Text style={styles.pageDescription}>Set the identity details before capturing the muzzle pattern. Fields marked * are mandatory.</Text></View>
+      <View><Text style={styles.eyebrow}>STEP 1 OF 4</Text><Text style={styles.pageTitle}>Animal Details</Text><Text style={styles.pageDescription}>Only the Tag ID (marked <Text style={styles.requiredMark}>*</Text>) is mandatory. Every other detail is optional and can be left blank.</Text></View>
+      <TagIdField value={props.tagId} onChange={props.onTagId} error={errors.tagId} />
+      <View style={styles.optionalDivider}>
+        <View style={styles.optionalLine} />
+        <Text style={styles.optionalLabel}>OPTIONAL DETAILS</Text>
+        <View style={styles.optionalLine} />
+      </View>
       <Card style={styles.formCard}>
         {/* 1. Bovine species */}
-        <ChoiceField label="Bovine Species" options={SPECIES_CHOICES} value={props.animalType} onChange={props.onType} error={errors.species} />
+        <ChoiceField label="Bovine Species" required={false} hint="Saved as Cattle if not chosen" options={SPECIES_CHOICES} value={props.animalType} onChange={props.onType} error={errors.species} />
         {/* 2. Breed (existing, species-specific) */}
         <View style={styles.fieldBlock}>
-          <FieldLabel label="Breed" hint={props.animalType ? undefined : 'Choose the bovine species first'} />
+          <FieldLabel label="Breed" required={false} hint={props.animalType ? 'Saved as “Unspecified” if not chosen' : 'Choose the bovine species first, or leave as “Unspecified”'} />
           {props.breeds.length > 0 ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalOptions} contentContainerStyle={styles.horizontalOptionContent}>
               {props.breeds.map((item) => <OptionChip key={item} label={item} selected={props.breed === item} onPress={() => props.onBreed(item)} />)}
@@ -534,30 +576,34 @@ function DetailsStep(props: DetailsProps) {
         </View>
         {/* Existing sex field — needed for the Status I / II rules */}
         <View style={styles.fieldBlock}>
-          <FieldLabel label="Sex" hint={sexHint} />
+          <FieldLabel label="Sex" required={false} hint={sexHint ?? 'Defaults to Female'} />
           <View style={styles.optionRow}><OptionChip label="Female" selected={props.sex === 'Female'} onPress={() => props.onSex('Female')} disabled={maleOnly} /><OptionChip label="Male" selected={props.sex === 'Male'} onPress={() => props.onSex('Male')} /></View>
         </View>
         {/* 3. Age (existing years + months) */}
         <View style={styles.ageBlock}>
-          <View style={styles.ageHeader}>
-            <FieldLabel label="Approximate age" />
-            <Text selectable style={styles.ageValue} numberOfLines={1} adjustsFontSizeToFit accessibilityLiveRegion="polite">{formatAge(props.ageYears, props.ageMonths)}</Text>
-          </View>
-          <AgeStepper label="Years" unit={props.ageYears === 1 ? 'year' : 'years'} value={props.ageYears} max={AGE_MAX_YEARS} onChange={props.onAgeYears} />
-          <AgeStepper label="Months" unit={props.ageMonths === 1 ? 'month' : 'months'} value={props.ageMonths} max={AGE_MAX_MONTHS} onChange={props.onAgeMonths} />
+          <ChoiceField label="Approximate age" required={false} options={AGE_KNOWN_CHOICES} value={props.ageKnown ? 'known' : 'unknown'} onChange={(value) => props.onAgeKnown(value === 'known')} />
+          {props.ageKnown ? (
+            <>
+              <Text selectable style={styles.ageValue} numberOfLines={1} adjustsFontSizeToFit accessibilityLiveRegion="polite">{formatAge(props.ageYears, props.ageMonths)}</Text>
+              <AgeStepper label="Years" unit={props.ageYears === 1 ? 'year' : 'years'} value={props.ageYears} max={AGE_MAX_YEARS} onChange={props.onAgeYears} />
+              <AgeStepper label="Months" unit={props.ageMonths === 1 ? 'month' : 'months'} value={props.ageMonths} max={AGE_MAX_MONTHS} onChange={props.onAgeMonths} />
+            </>
+          ) : <Text style={styles.pageDescription}>Saved as “Age not recorded”. Status I and II stay NA without an age.</Text>}
         </View>
         {/* 4. Age group (derived, read-only) */}
-        <ReadOnlyField
-          label="Age Group"
-          icon="calendar-outline"
-          value={d.ageGroup ?? (props.animalType ? 'Not available' : 'Choose species first')}
-          caption={d.ageGroup && d.thresholds ? describeAgeGroup(d.ageGroup, d.thresholds) : undefined}
-          error={errors.ageGroup}
-        />
+        {props.ageKnown ? (
+          <ReadOnlyField
+            label="Age Group"
+            icon="calendar-outline"
+            value={d.ageGroup ?? 'Not available'}
+            caption={d.ageGroup && d.thresholds ? describeAgeGroup(d.ageGroup, d.thresholds) : undefined}
+            error={errors.ageGroup}
+          />
+        ) : null}
       </Card>
       <Card style={styles.formCard}>
         {/* 5–8. Dairy society */}
-        <ChoiceField label="Are you giving milk in a dairy society?" options={YES_NO_CHOICES} value={d.dairySociety} onChange={d.onDairy} error={errors.dairy} />
+        <ChoiceField label="Are you giving milk in a dairy society?" required={false} hint="Saved as NO if not answered" options={YES_NO_CHOICES} value={d.dairySociety} onChange={d.onDairy} error={errors.dairy} />
         {d.dairySociety === 'yes' ? (
           <SocietyFields
             name={d.societyName}
@@ -572,24 +618,26 @@ function DetailsStep(props: DetailsProps) {
         {/* 9. Status I */}
         <ChoiceField
           label="Status I — Production"
-          hint="MILK: producing milk now · DRY: dairy animal not producing now · NA: not applicable"
+          required={false}
+          hint="Saved as NA if not chosen · MILK: producing milk now · DRY: dairy animal not producing now · NA: not applicable"
           options={PRODUCTION_CHOICES}
           value={d.productionStatus}
           onChange={d.onProduction}
-          lockedTo={props.animalType && d.ageGroup && !d.canProduce ? 'NA' : undefined}
-          lockedReason={productionLockReason(props.animalType, props.sex, d.ageGroup)}
+          lockedTo={!d.canProduce ? 'NA' : undefined}
+          lockedReason={d.ageGroup ? productionLockReason(props.animalType, props.sex, d.ageGroup) : 'Set to NA: enter the age to record Status I.'}
           error={errors.production}
           tone="blue"
         />
         {/* 10. Status II */}
         <ChoiceField
           label="Status II — Pregnancy"
-          hint="PREGNANT: confirmed pregnant · NON-PREGNANT: confirmed not pregnant · NA: not applicable"
+          required={false}
+          hint="Saved as NA if not chosen · PREGNANT: confirmed pregnant · NON-PREGNANT: confirmed not pregnant · NA: not applicable"
           options={PREGNANCY_CHOICES}
           value={d.pregnancyStatus}
           onChange={d.onPregnancy}
-          lockedTo={props.animalType && d.ageGroup && !d.canBePregnant ? 'NA' : undefined}
-          lockedReason={pregnancyLockReason(props.animalType, props.sex)}
+          lockedTo={!d.canBePregnant ? 'NA' : undefined}
+          lockedReason={d.ageGroup ? pregnancyLockReason(props.animalType, props.sex) : 'Set to NA: enter the age to record Status II.'}
           error={errors.pregnancy}
           tone="blue"
         />
@@ -598,10 +646,10 @@ function DetailsStep(props: DetailsProps) {
         {/* 11. Registration date & time */}
         <RegistrationTimeCard />
         {/* 12. GPS */}
-        <GpsCard status={gps.status} fix={gps.fix} error={gps.error} onCapture={() => void gps.capture()} onOpenSettings={() => void gps.openSettings()} canOpenSettings={process.env.EXPO_OS !== 'web'} showRequired={!!errors.gps} />
+        <GpsCard status={gps.status} fix={gps.fix} error={gps.error} onCapture={() => void gps.capture()} onOpenSettings={() => void gps.openSettings()} canOpenSettings={process.env.EXPO_OS !== 'web'} showRequired={!!errors.gps} optional />
       </Card>
       <Card style={styles.formCard}>
-        <Text style={styles.formSectionTitle}>Location & ownership</Text>
+        <Text style={styles.formSectionTitle}>Location & ownership (optional)</Text>
         {props.farmOptions.length > 0 ? (
           <>
             <Text style={styles.pageDescription}>Assigned farm (only farms in your authorised scope)</Text>
@@ -615,7 +663,7 @@ function DetailsStep(props: DetailsProps) {
       </Card>
       {props.error ? <View style={styles.inlineError}><Ionicons name="alert-circle" size={17} color={colors.danger} /><Text selectable style={styles.inlineErrorText}>{props.error}</Text></View> : null}
       <PrimaryButton label="Next: Capture Muzzle Pattern" icon="arrow-forward" onPress={props.onNext} />
-      {!gps.fix ? <Text style={styles.gateNote}>GPS location is compulsory — the next step unlocks once it is captured.</Text> : null}
+      {!normaliseTagId(props.tagId) ? <Text style={styles.gateNote}>Enter the Tag ID to continue — everything else is optional.</Text> : null}
     </View>
   );
 }
@@ -826,6 +874,8 @@ function DuplicateReviewStep({ result, probeUri, matchT, reviewT, saving, saveEr
 }
 
 interface SuccessSummary {
+  tagId: string;
+  ageKnown: boolean;
   animalType: AnimalType;
   breed: string;
   sex: Sex;
@@ -850,13 +900,15 @@ function SuccessStep({ result, summary, cropUri, isFarmer, onProfile, onIdentify
       <View><Text style={styles.eyebrow}>STEP 4 OF 4</Text><Text style={styles.pageTitle}>{queued ? 'Pending Server Duplicate Check' : 'Identity Assigned'}</Text><Text style={styles.pageDescription}>{queued ? 'The service was unavailable while saving. Nothing is registered yet: the record waits on this device and the server runs the full duplicate check at the next sync. A possible duplicate is held for your review and never issued an ID automatically.' : result.duplicate ? 'Submitted for duplicate review. The record is Pending Review and must be approved by an authorised reviewer before its ID is active.' : isFarmer ? 'Your record has been saved and sent for verification.' : result.approvalStatus === 'Approved' ? 'No registered match was found. The animal and its biometric templates are saved.' : `Saved with status “${result.approvalStatus}”.`}</Text></View>
       <View style={styles.successCard}>
         <View style={styles.successIcon}><Ionicons name={queued ? 'time-outline' : 'checkmark'} size={32} color={colors.surface} /></View>
+        <Text style={styles.successKicker}>TAG ID</Text>
+        <Text selectable style={styles.successTag} numberOfLines={1} adjustsFontSizeToFit>{summary.tagId}</Text>
         <Text style={styles.successKicker}>{queued ? 'PROVISIONAL REFERENCE — NOT YET A MOOZZLE ID' : 'MOOZZLE ID'}</Text>
         <Text selectable style={styles.successId}>{formatMoozzleId(result.moozzleId)}</Text>
         <Pill label={statusLabel} tone={queued || result.approvalStatus !== 'Approved' ? 'amber' : 'green'} />
         {result.score !== null ? <Text style={styles.successDisclaimer}>1:N best similarity {result.score.toFixed(3)} across {result.templatesSearched ?? 0} templates · {summary.captures} templates stored · {ENGINE_MODEL}</Text> : null}
         {result.duplicate ? <Text style={styles.successDisclaimer}>Possible duplicate of {result.match?.in_scope ? formatMoozzleId(result.match.moozzle_id) : 'an existing animal'} — submitted for manual review, never merged automatically.</Text> : null}
       </View>
-      <Card style={styles.summaryCard}><CaptureImage uri={cropUri} label="MUZZLE" size={92} /><View style={styles.summaryGrid}><SummaryItem label="Species" value={summary.animalType} /><SummaryItem label="Breed" value={summary.breed} /><SummaryItem label="Sex" value={summary.sex} /><SummaryItem label="Age" value={formatAge(summary.ageYears, summary.ageMonths)} /><SummaryItem label="Age group" value={summary.ageGroup ?? '—'} /><SummaryItem label="Status I" value={summary.productionStatus ?? '—'} /><SummaryItem label="Status II" value={summary.pregnancyStatus ?? '—'} /><SummaryItem label="Dairy society" value={summary.dairySociety === 'yes' ? 'YES' : summary.dairySociety === 'no' ? 'NO' : '—'} /><SummaryItem label="Location" value={`${summary.village}, ${summary.stateName}`} /><SummaryItem label="Frames" value={`${summary.captures} accepted`} /><SummaryItem label="Registered" value={summary.registeredAt ? formatLocalDateTime(summary.registeredAt) : '—'} /><SummaryItem label="GPS" value={summary.gps ? `${formatCoordinate(summary.gps.latitude, 'N', 'S')}, ${formatCoordinate(summary.gps.longitude, 'E', 'W')}${summary.gps.accuracy !== null ? ` · ±${Math.round(summary.gps.accuracy)} m` : ''}` : '—'} /></View></Card>
+      <Card style={styles.summaryCard}><CaptureImage uri={cropUri} label="MUZZLE" size={92} /><View style={styles.summaryGrid}><SummaryItem label="Species" value={summary.animalType} /><SummaryItem label="Breed" value={summary.breed} /><SummaryItem label="Sex" value={summary.sex} /><SummaryItem label="Age" value={summary.ageKnown ? formatAge(summary.ageYears, summary.ageMonths) : 'Not recorded'} /><SummaryItem label="Age group" value={summary.ageGroup ?? '—'} /><SummaryItem label="Status I" value={summary.productionStatus ?? '—'} /><SummaryItem label="Status II" value={summary.pregnancyStatus ?? '—'} /><SummaryItem label="Dairy society" value={summary.dairySociety === 'yes' ? 'YES' : summary.dairySociety === 'no' ? 'NO' : '—'} /><SummaryItem label="Location" value={[summary.village, summary.stateName].filter(Boolean).join(', ') || '—'} /><SummaryItem label="Frames" value={`${summary.captures} accepted`} /><SummaryItem label="Registered" value={summary.registeredAt ? formatLocalDateTime(summary.registeredAt) : '—'} /><SummaryItem label="GPS" value={summary.gps ? `${formatCoordinate(summary.gps.latitude, 'N', 'S')}, ${formatCoordinate(summary.gps.longitude, 'E', 'W')}${summary.gps.accuracy !== null ? ` · ±${Math.round(summary.gps.accuracy)} m` : ''}` : '—'} /></View></Card>
       {!queued ? <PrimaryButton label="VIEW ANIMAL PROFILE" icon="document-text-outline" onPress={onProfile} /> : null}
       <View style={styles.buttonRow}><PrimaryButton label="IDENTIFY AGAIN" onPress={onIdentify} variant="outline" style={styles.halfButton} /><PrimaryButton label="REGISTER ANOTHER" onPress={onRegisterAnother} variant="soft" style={styles.halfButton} /></View>
     </View>
@@ -925,6 +977,19 @@ const styles = StyleSheet.create({
   pageDescription: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 14, lineHeight: 20, marginTop: 5 },
   formCard: { gap: 18 },
   fieldBlock: { gap: 8 },
+  requiredMark: { color: colors.danger, fontFamily: Fonts.bold, fontSize: 18, lineHeight: 20 },
+  tagCard: { backgroundColor: colors.surface, borderRadius: 16, borderCurve: 'continuous', padding: 16, gap: 12, borderWidth: 2, borderColor: colors.primary, boxShadow: '0 6px 18px rgba(15, 61, 46, 0.10)' },
+  tagCardError: { borderColor: colors.danger },
+  tagHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  tagIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  tagLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  tagLabel: { color: colors.text, fontFamily: Fonts.bold, fontSize: 15, letterSpacing: 1.2 },
+  tagHint: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 12, marginTop: 1 },
+  tagInput: { minHeight: 56, borderRadius: 12, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.background, paddingHorizontal: 14, color: colors.text, fontFamily: Fonts.bold, fontSize: 22, letterSpacing: 1.5, width: '100%' },
+  optionalDivider: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  optionalLine: { flex: 1, height: 1, backgroundColor: colors.border },
+  optionalLabel: { color: colors.muted, fontFamily: Fonts.bold, fontSize: 11, letterSpacing: 1.4 },
+  successTag: { color: colors.surface, fontFamily: Fonts.bold, fontSize: 34, letterSpacing: 1.5, textAlign: 'center' },
   gateNote: { color: colors.muted, fontFamily: Fonts.medium, fontSize: 12, lineHeight: 17, textAlign: 'center' },
   formSectionTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 15 },
   optionRow: { flexDirection: 'row', gap: 9 },

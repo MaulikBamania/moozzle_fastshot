@@ -7,7 +7,8 @@ import { FormSheet } from '@/components/record-forms';
 import { Card, colors, DataGate, EmptyState, formatMoozzleId, Pill, PrimaryButton } from '@/components/moozzle-ui';
 import { ScanReviewQueue } from '@/components/scan-review-queue';
 import { Fonts } from '@/constants/Typography';
-import { formatAgeShort } from '@/lib/age';
+import { tagLabel } from '@/lib/tag-id';
+import { animalAgeText } from '@/lib/age';
 import type { Role } from '@/lib/rbac';
 import { reviewAnimal, reviewRequest, useBovineData, useBovineStore, useSession } from '@/store/useBovineStore';
 import type { Animal, RequestRow } from '@/store/types';
@@ -78,10 +79,13 @@ function ApprovalsContent() {
       {registrations.map((animal) => (
         <Card key={animal.id} style={styles.card}>
           <View style={styles.top}>
-            <Text selectable style={styles.id}>{formatMoozzleId(animal.moozzle_id)}</Text>
+            <View style={styles.flex}>
+              <Text selectable style={styles.tagPrimary} numberOfLines={1}>Tag {tagLabel(animal.tag_id)}</Text>
+              <Text selectable style={styles.tagSecondary}>MOOZZLE {formatMoozzleId(animal.moozzle_id)}</Text>
+            </View>
             <Pill label={animal.approval_status} tone="amber" />
           </View>
-          <Text style={styles.meta}>{animal.breed} {animal.animal_type} · {animal.sex} · {formatAgeShort(animal.age_years, animal.age_months)} · {animal.farm_name || animal.village}</Text>
+          <Text style={styles.meta}>{animal.breed} {animal.animal_type} · {animal.sex} · {animalAgeText(animal, true)}{animal.farm_name || animal.village ? ` · ${animal.farm_name || animal.village}` : ''}</Text>
           {animal.duplicate_of ? <Text style={styles.warn}>Possible duplicate of an existing identity — verify before approving.</Text> : null}
           <View style={styles.row}>
             <PrimaryButton label="Open" variant="outline" onPress={() => router.push(`/animal/${animal.moozzle_id}`)} style={styles.flex} />
@@ -156,6 +160,8 @@ function RequestCard({ request, onDecide }: { request: RequestRow; onDecide: (de
 }
 
 const styles = StyleSheet.create({
+  tagPrimary: { color: colors.text, fontFamily: Fonts.bold, fontSize: 18, letterSpacing: 0.6 },
+  tagSecondary: { color: colors.muted, fontFamily: Fonts.semiBold, fontSize: 12, fontVariant: ['tabular-nums'] },
   flex: { flex: 1, paddingHorizontal: 6 },
   notice: { backgroundColor: colors.primaryLight, borderRadius: 12, padding: 12 },
   noticeText: { color: colors.primaryDark, fontFamily: Fonts.semiBold, fontSize: 13 },

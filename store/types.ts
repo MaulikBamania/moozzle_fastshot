@@ -32,6 +32,10 @@ export interface AnimalRow {
   id: string;
   user_id: string;
   moozzle_id: string;
+  /** Ear tag / animal tag (upper-case); null on records registered before Tag ID was mandatory. */
+  tag_id?: string | null;
+  /** False when the age was not known at registration (age_years/months are then 0 and age_group null). */
+  age_recorded?: boolean;
   species: SpeciesCode;
   breed: string;
   sex: 'female' | 'male';
@@ -213,6 +217,9 @@ export interface PermissionRow {
 export interface Animal {
   id: string;
   moozzle_id: string;
+  /** Primary field identifier; empty string for legacy records without a tag. */
+  tag_id: string;
+  age_recorded: boolean;
   animal_type: AnimalType;
   breed: string;
   sex: Sex;
@@ -281,6 +288,10 @@ export interface LivestockServiceRecord {
 export interface RegisterPayload {
   id: string;
   moozzle_id: string;
+  /** Mandatory ear tag / animal tag. Optional in the type only so items queued before this release still parse. */
+  tag_id?: string;
+  /** False when the age was left unrecorded. */
+  age_recorded?: boolean;
   species: SpeciesCode;
   breed: string;
   sex: 'female' | 'male';
@@ -488,13 +499,21 @@ export interface MatchCandidate {
   animal_id?: string;
   in_scope: boolean;
   moozzle_id: string;
+  tag_id?: string | null;
   species: SpeciesCode;
   breed?: string;
   sex?: 'female' | 'male';
   age_years?: number;
   age_months?: number;
+  age_recorded?: boolean;
+  age_group?: AgeGroup | null;
   farm_name?: string;
   village?: string;
+  district?: string;
+  state?: string;
+  biometric_status?: string;
+  approval_status?: ApprovalStatus;
+  status?: string;
   reference_image_path?: string | null;
   score: number;
 }

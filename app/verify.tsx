@@ -8,6 +8,8 @@ import { ConfigFootnote, DecisionBanner, PendingScansCard, QualityInsufficientPa
 import { CaptureImage, EnginePipeline, errorText, MuzzleCapture, ScoreMeter } from '@/components/biometric-ui';
 import { Card, colors, DataGate, formatMoozzleId, OptionChip, PrimaryButton, TextField } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
+import { TagIdentityCard } from '@/components/tag-identity-card';
+import { tagLabel } from '@/lib/tag-id';
 import { decisionForOutcome, reasonText } from '@/lib/biometric/decision';
 import { analyzeMuzzle, logAcquisitionEvent, requestScanReview, verifyMuzzle } from '@/lib/biometric/engine';
 import { classifyBiometricError } from '@/lib/biometric/errors';
@@ -176,7 +178,7 @@ function VerifyContent() {
       <Card style={styles.card}>
         <TextField label="Claimed MOOZZLE ID (12 digits)" value={claimed} onChangeText={onIdChange} keyboardType="number-pad" placeholder="4827 3190 5614" maxLength={14} />
         {digits.length > 0 && !validId ? <Text style={styles.hint}>{12 - digits.length} more digit(s) needed.</Text> : null}
-        {validId && claimedAnimal ? <Text style={styles.hint}>{claimedAnimal.breed} {claimedAnimal.animal_type} · {claimedAnimal.farm_name || claimedAnimal.village}</Text> : null}
+        {validId && claimedAnimal ? <Text style={styles.hint}><Text style={styles.claimTag}>Tag {tagLabel(claimedAnimal.tag_id)}</Text> · {claimedAnimal.breed} {claimedAnimal.animal_type}{claimedAnimal.farm_name || claimedAnimal.village ? ` · ${claimedAnimal.farm_name || claimedAnimal.village}` : ''}</Text> : null}
         {validId && !claimedAnimal ? <Text style={styles.hint}>Not in your downloaded records — the server checks your authorisation when you scan.</Text> : null}
         <Text style={styles.hint}>1:1 verification compares this capture only with the reference templates of the claimed ID, using the approved 1:1 threshold (separate from 1:N identification).</Text>
         {session.role === 'Insurance Officer' && policies.length > 0 ? (
@@ -214,8 +216,13 @@ function VerifyContent() {
       {result && decision ? (
         <>
           <DecisionBanner decision={decision} subtitle={`${OUTCOME_TEXT[result.outcome]} ${reasonText(result.decision_reason)}`} />
+          <TagIdentityCard
+            candidate={result.animal}
+            tone={decision === 'MATCH_CONFIRMED' ? 'green' : decision === 'REVIEW_REQUIRED' ? 'amber' : 'slate'}
+            caption={decision === 'MATCH_CONFIRMED' ? 'Claimed identity verified by muzzle biometrics' : decision === 'REVIEW_REQUIRED' ? 'Claimed identity — NOT confirmed, review required' : 'Claimed identity — NOT accepted for this animal'}
+          />
           <Card style={styles.card}>
-            <Text style={styles.kicker}>CLAIMED IDENTITY</Text>
+            <Text style={styles.kicker}>CLAIMED MOOZZLE ID</Text>
             <Text selectable style={styles.id}>{formatMoozzleId(digits)}</Text>
             {decision === 'MATCH_CONFIRMED' ? <View style={styles.badge}><Ionicons name="shield-checkmark" size={16} color={colors.primary} /><Text style={styles.badgeText}>Claim verified · 1:1 config v{result.config_version}</Text></View> : null}
             <View style={styles.compare}>
@@ -253,6 +260,7 @@ function VerifyContent() {
 }
 
 const styles = StyleSheet.create({
+  claimTag: { color: colors.text, fontFamily: Fonts.bold, fontSize: 15 },
   flex: { flex: 1 },
   card: { gap: 10 },
   hint: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 12, lineHeight: 17 },

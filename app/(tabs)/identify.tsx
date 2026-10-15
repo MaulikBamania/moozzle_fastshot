@@ -9,11 +9,12 @@ import { ConfigFootnote, DecisionBanner, PendingScansCard, QualityInsufficientPa
 import { CaptureImage, EnginePipeline, errorText, MuzzleCapture, ScoreMeter } from '@/components/biometric-ui';
 import { AnimalPhoto, Card, colors, DataGate, formatMoozzleId, Pill, PrimaryButton, TextField, tr } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
+import { TagIdentityCard } from '@/components/tag-identity-card';
+import { tagLabel } from '@/lib/tag-id';
 import { decisionForOutcome, reasonText } from '@/lib/biometric/decision';
 import { analyzeMuzzle, identifyMuzzle, logAcquisitionEvent, requestScanReview } from '@/lib/biometric/engine';
 import { classifyBiometricError } from '@/lib/biometric/errors';
 import { ENGINE_MODEL } from '@/lib/biometric/features';
-import { formatAgeShort } from '@/lib/age';
 import { allows, usesTechnicalLanguage } from '@/lib/rbac';
 import { useAppStore } from '@/store/useAppStore';
 import { logAudit, useBovineData, useSession } from '@/store/useBovineStore';
@@ -70,8 +71,8 @@ function IdentifyContent() {
 
   const lookupResults = useMemo(() => {
     const normalized = query.replace(/\s/g, '').toLowerCase();
-    if (normalized.length < 3) return [];
-    return animals.filter((item) => [item.moozzle_id, item.breed, item.farm_name.replace(/\s/g, ''), item.village.replace(/\s/g, '')].some((value) => value.toLowerCase().includes(normalized))).slice(0, 6);
+    if (normalized.length < 2) return [];
+    return animals.filter((item) => [item.tag_id.replace(/\s/g, ''), item.moozzle_id, item.breed, item.farm_name.replace(/\s/g, ''), item.village.replace(/\s/g, '')].some((value) => value.toLowerCase().includes(normalized))).slice(0, 6);
   }, [animals, query]);
 
   const toService = useCallback((caught: unknown, capture: { uri: string; source: CaptureSource } | null) => {
@@ -289,19 +290,20 @@ function IdentifyContent() {
 
       {phase === 'capture' && !addingMore ? (
         <Card style={styles.lookup}>
-          <TextField label="Look up by MOOZZLE ID, breed, farm or village" value={query} onChangeText={setQuery} placeholder="e.g. 4827 or Gir" autoCapitalize="none" />
-          {query.replace(/\s/g, '').length >= 3 && lookupResults.length === 0 ? <Text style={styles.lookupEmpty}>No animal in your authorised records matches “{query.trim()}”.</Text> : null}
+          <TextField label="Look up by Tag ID, MOOZZLE ID, breed, farm or village" value={query} onChangeText={setQuery} placeholder="e.g. GJ-0458 or Gir" autoCapitalize="none" />
+          {query.replace(/\s/g, '').length >= 2 && lookupResults.length === 0 ? <Text style={styles.lookupEmpty}>No animal in your authorised records matches “{query.trim()}”.</Text> : null}
           {lookupResults.map((animal) => (
             <Pressable key={animal.id} accessibilityRole="button" onPress={() => chooseLookup(animal)} style={({ pressed }) => [styles.lookupRow, pressed && styles.pressed]}>
               <AnimalPhoto animal={animal} size={42} />
-              <View style={styles.flex}><Text selectable style={styles.lookupId}>{formatMoozzleId(animal.moozzle_id)}</Text><Text style={styles.lookupMeta}>{animal.breed} · {animal.farm_name || animal.village}</Text></View>
+              <View style={styles.flex}><Text selectable style={styles.candidateTag} numberOfLines={1}>{tagLabel(animal.tag_id)}</Text><Text selectable style={styles.lookupMeta}>{formatMoozzleId(animal.moozzle_id)} · {[animal.breed, animal.farm_name || animal.village].filter(Boolean).join(' · ')}</Text></View>
               <Ionicons name="chevron-forward" size={18} color={colors.muted} />
             </Pressable>
           ))}
           {lookup ? (
             <View style={styles.lookupResult}>
               <Text style={styles.kicker}>RECORD FOUND BY ID LOOKUP (NOT A BIOMETRIC MATCH)</Text>
-              <Text selectable style={styles.lookupBig}>{formatMoozzleId(lookup.moozzle_id)}</Text>
+              <Text selectable style={styles.lookupBig}>{tagLabel(lookup.tag_id)}</Text>
+              <Text selectable style={styles.lookupMeta}>MOOZZLE ID {formatMoozzleId(lookup.moozzle_id)}</Text>
               <PrimaryButton label="View Animal Record" icon="document-text-outline" onPress={() => router.push(`/animal/${lookup.moozzle_id}`)} />
             </View>
           ) : null}
@@ -339,13 +341,12 @@ function ResultView(props: ResultProps) {
     return (
       <View style={styles.resultStack}>
         <DecisionBanner decision="MATCH_CONFIRMED" subtitle={`${result.frames} frame(s) · ${result.templates_searched} templates searched · ${reasonText(result.decision_reason)}`} />
+        <TagIdentityCard candidate={top} caption={`${capital(top.species)}${top.breed ? ` · ${top.breed}` : ''}`} />
         <Card style={styles.resultCard}>
           <View style={styles.idHeader}>
-            <View style={styles.flex}><Text style={styles.kicker}>MOOZZLE ID</Text><Text selectable style={styles.resultId}>{top.in_scope ? formatMoozzleId(top.moozzle_id) : top.moozzle_id}</Text></View>
-            {top.in_scope ? <Pressable accessibilityRole="button" accessibilityLabel="Copy MOOZZLE ID" onPress={() => props.onCopy(top.moozzle_id)} style={styles.copy}><Ionicons name={props.copied ? 'checkmark' : 'copy-outline'} size={18} color={colors.primary} /><Text style={styles.copyText}>{props.copied ? 'Copied' : 'Copy'}</Text></Pressable> : null}
+            <View style={styles.badgeInline}><Ionicons name="shield-checkmark" size={16} color={colors.primary} /><Text style={styles.badgeText}>Biometric identity verified · 1:N config v{result.config_version}</Text></View>
+            {top.in_scope ? <Pressable accessibilityRole="button" accessibilityLabel="Copy MOOZZLE ID" onPress={() => props.onCopy(top.moozzle_id)} style={styles.copy}><Ionicons name={props.copied ? 'checkmark' : 'copy-outline'} size={18} color={colors.primary} /><Text style={styles.copyText}>{props.copied ? 'Copied' : 'Copy ID'}</Text></Pressable> : null}
           </View>
-          <View style={styles.badge}><Ionicons name="shield-checkmark" size={16} color={colors.primary} /><Text style={styles.badgeText}>Biometric identity verified · 1:N config v{result.config_version}</Text></View>
-          <Text style={styles.summaryText}>{top.in_scope ? `${capital(top.species)} · ${top.breed} · ${capital(top.sex ?? '')} · ${formatAgeShort(top.age_years, top.age_months)} · ${top.farm_name || top.village}` : `${capital(top.species)} · registered outside your authorised scope. Details are withheld; contact the owning organisation.`}</Text>
           <View style={styles.compare}>
             <CaptureImage uri={props.probeUri} label="THIS SCAN" size={132} />
             <Ionicons name="swap-horizontal" size={20} color={colors.muted} />
@@ -363,6 +364,7 @@ function ResultView(props: ResultProps) {
     return (
       <View style={styles.resultStack}>
         <DecisionBanner decision="REVIEW_REQUIRED" subtitle={`${reasonText(result.decision_reason)} No identity is confirmed.`} />
+        {top ? <TagIdentityCard candidate={top} tone="amber" caption="Leading candidate — NOT confirmed. Compare the muzzles before acting on this tag." /> : null}
         <Card style={styles.resultCard}>
           <Text style={styles.kicker}>SIDE-BY-SIDE · LEADING CANDIDATE</Text>
           <View style={styles.compare}>
@@ -415,8 +417,9 @@ function CandidateRow({ candidate, rank }: { candidate: MatchCandidate; rank: nu
       <Text style={styles.rank}>#{rank}</Text>
       <CaptureImage path={candidate.in_scope ? candidate.reference_image_path : null} label="REF" size={52} />
       <View style={styles.flex}>
+        {candidate.in_scope ? <Text selectable style={styles.candidateTag} numberOfLines={1}>{tagLabel(candidate.tag_id)}</Text> : null}
         <Text selectable style={styles.lookupId}>{candidate.in_scope ? formatMoozzleId(candidate.moozzle_id) : candidate.moozzle_id}</Text>
-        <Text style={styles.lookupMeta}>{candidate.in_scope ? `${candidate.breed} ${capital(candidate.species)} · ${candidate.farm_name || candidate.village}` : `${capital(candidate.species)} · outside your scope`}</Text>
+        <Text style={styles.lookupMeta}>{candidate.in_scope ? [`${candidate.breed ?? ''} ${capital(candidate.species)}`.trim(), candidate.farm_name || candidate.village].filter(Boolean).join(' · ') : `${capital(candidate.species)} · outside your scope`}</Text>
       </View>
       <Text selectable style={styles.score}>{candidate.score.toFixed(3)}</Text>
     </View>
@@ -429,6 +432,8 @@ function capital(value: string): string {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  badgeInline: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+  candidateTag: { color: colors.text, fontFamily: Fonts.bold, fontSize: 17, letterSpacing: 0.6 },
   content: { padding: 16, gap: 14, paddingBottom: 32, maxWidth: 760, width: '100%', alignSelf: 'center' },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   eyebrow: { color: colors.blue, fontFamily: Fonts.bold, fontSize: 11, letterSpacing: 1.1 },

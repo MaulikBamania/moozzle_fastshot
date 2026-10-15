@@ -9,7 +9,8 @@ import { CaptureImage } from '@/components/biometric-ui';
 import { FormSheet, SERVICE_FORMS, type FieldSpec, type FormSpec, type FormSubmit } from '@/components/record-forms';
 import { AnimalPhoto, approvalTone, Card, colors, DataGate, EmptyState, ErrorState, formatMoozzleId, Pill, PrimaryButton } from '@/components/moozzle-ui';
 import { Fonts } from '@/constants/Typography';
-import { formatAge } from '@/lib/age';
+import { tagLabel } from '@/lib/tag-id';
+import { animalAgeText } from '@/lib/age';
 import { formatCoordinate, formatLocalDateTime } from '@/lib/demographics';
 import { allows, canRequestService, canWriteService, LIMITED_HEALTH_TITLES, type Role, type ServiceKind } from '@/lib/rbac';
 import { supabase } from '@/lib/supabase';
@@ -277,8 +278,8 @@ function AnimalProfileContent() {
       <View style={styles.topBar}>
         <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/records'))} style={styles.back}><Ionicons name="chevron-back" size={22} color={colors.text} /></Pressable>
         <View style={styles.topCopy}>
-          <Text numberOfLines={1} style={styles.topKicker}>MOOZZLE ID</Text>
-          <Text selectable numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.topId}>{formatMoozzleId(animal.moozzle_id)}</Text>
+          <Text numberOfLines={1} style={styles.topKicker}>TAG ID</Text>
+          <Text selectable numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.topId}>{tagLabel(animal.tag_id)}</Text>
         </View>
         <View style={styles.topStatus}>
           <Pill label={animal.approval_status} tone={approvalTone(animal.approval_status)} />
@@ -404,8 +405,11 @@ function IdentityTab({ animal, role, canReview, canRetire, retireLabel, canTrans
       <Card style={styles.hero}>
         {animal.reference_image_path ? <CaptureImage path={animal.reference_image_path} label="MUZZLE" size={92} /> : <AnimalPhoto animal={animal} size={92} />}
         <View style={styles.flex}>
+          <Text style={styles.tagKicker}>TAG ID</Text>
+          <Text selectable style={styles.tagHero} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>{tagLabel(animal.tag_id)}</Text>
+          <Text selectable style={styles.tagSecondary}>MOOZZLE ID {formatMoozzleId(animal.moozzle_id)}</Text>
           <Text style={styles.heroTitle}>{animal.breed} {animal.animal_type}</Text>
-          <Text style={styles.heroMeta}>{animal.sex} · {formatAge(animal.age_years, animal.age_months)}</Text>
+          <Text style={styles.heroMeta}>{animal.sex} · {animalAgeText(animal)}</Text>
           <View style={styles.pills}>
             <Pill label={animal.current_status} tone={animal.current_status === 'Active' ? 'green' : 'slate'} />
             <Pill label={`Biometric: ${animal.biometric_status}`} tone={animal.biometric_status === 'Enrolled' ? 'blue' : 'amber'} />
@@ -544,7 +548,7 @@ function DocumentsTab({ animal, records, canViewHealth, policies }: { animal: An
   const certificate = [
     'MOOZZLE — Certificate of Biometric Registration',
     `MOOZZLE ID: ${formatMoozzleId(animal.moozzle_id)}`,
-    `Animal: ${animal.breed} ${animal.animal_type}, ${animal.sex}, ${formatAge(animal.age_years, animal.age_months)}`,
+    `Animal: Tag ${tagLabel(animal.tag_id)} · ${animal.breed} ${animal.animal_type}, ${animal.sex}, ${animalAgeText(animal)}`,
     `Farm: ${animal.farm_name || '—'} · ${[animal.village, animal.district, animal.state].filter(Boolean).join(', ')}`,
     `Registered: ${new Date(animal.registration_date).toLocaleDateString()} · Status: ${animal.approval_status}`,
     'One Muzzle. One Identity. One Digital Record.',
@@ -622,6 +626,9 @@ function ActivityTab({ moozzleId }: { moozzleId: string }) {
 }
 
 const styles = StyleSheet.create({
+  tagKicker: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 11, letterSpacing: 1.6 },
+  tagHero: { color: colors.text, fontFamily: Fonts.bold, fontSize: 30, lineHeight: 36, letterSpacing: 1 },
+  tagSecondary: { color: colors.muted, fontFamily: Fonts.semiBold, fontSize: 12, fontVariant: ['tabular-nums'], marginBottom: 4 },
   page: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   row: { flexDirection: 'row', gap: 10 },
