@@ -18,14 +18,15 @@ import {
 } from '@/components/moozzle-ui';
 import { RequireAccess } from '@/components/app-chrome';
 import { DecisionBanner, ServiceUnavailablePanel, TestSessionBanner } from '@/components/biometric-decision';
-import { CaptureImage, EnginePipeline, errorText, MuzzleCapture, ScoreMeter } from '@/components/biometric-ui';
+import { CaptureImage, EnginePipeline, errorText, MuzzleCapture, ScoreMeter, type DuplicateFrameNotice } from '@/components/biometric-ui';
+import { ANGLE_NAMES, ANGLE_SLOTS, findDuplicateFrame, missingRequiredSlots, requiredSlotsFilled, targetSlot } from '@/lib/biometric/angles';
 import { analyzeMuzzle, logAcquisitionEvent, uploadCapture } from '@/lib/biometric/engine';
 import { classifyBiometricError } from '@/lib/biometric/errors';
 import { cosineSimilarity, embeddingLiteral, ENGINE_MODEL } from '@/lib/biometric/features';
 import { createAnimal, generateMoozzleId, logAudit, useBovineStore, useSession, type RegisterResult } from '@/store/useBovineStore';
 import { useCaptureHandoff } from '@/store/useCaptureHandoff';
 import { useIsOnline } from '@/store/useConnectivity';
-import type { AgeGroup, AnimalType, CaptureSource, GpsFix, MuzzleAnalysis, PipelineStage, PregnancyStatus, ProductionStatus, Sex, YesNo } from '@/store/types';
+import type { AgeGroup, AnimalType, CaptureAngle, CaptureSource, DuplicateFrameRejection, GpsFix, MuzzleAnalysis, PipelineStage, PregnancyStatus, ProductionStatus, Sex, YesNo } from '@/store/types';
 import { Fonts } from '@/constants/Typography';
 import { AGE_MAX_MONTHS, AGE_MAX_YEARS, formatAge } from '@/lib/age';
 import {
@@ -44,8 +45,7 @@ import {
 import { useGpsCapture } from '@/lib/use-gps';
 import { ChoiceField, FieldError, FieldLabel, GpsCard, ReadOnlyField, RegistrationTimeCard, SocietyFields } from '@/components/register-demographics';
 
-const MIN_FRAMES = 3;
-const MAX_FRAMES = 5;
+const MAX_FRAMES = ANGLE_SLOTS.length;
 const SAVE_STEPS = ['Uploading accepted muzzle frames (private, encrypted storage)', '1:N duplicate search across every enrolled template', 'Issuing permanent 12-digit MOOZZLE ID & writing audit log'];
 
 const SPECIES_CHOICES = SPECIES_OPTIONS.map((item) => ({ value: item.type, label: item.label }));
@@ -71,8 +71,24 @@ function pregnancyLockReason(type: AnimalType | null, sex: Sex): string {
   return 'Set to NA: calves cannot be pregnant.';
 }
 
+/** SHA-256 of a normalised capture; null if hashing is unavailable (duplicates are then caught by similarity). */
+async function imageHash(base64: string): Promise<string | null> {
+  if (!base64) return null;
+  try {
+    return await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, base64);
+  } catch (caught) {
+    console.error('Frame hash failed', caught);
+    return null;
+  }
+}
+
 interface AcceptedFrame {
   analysis: MuzzleAnalysis;
+  /** Angle-guided slot (0-based) this frame fills, and the angle tag saved with its template. */
+  slot: number;
+  angle: CaptureAngle;
+  /** SHA-256 of the normalised image, used to reject byte-identical re-uploads. */
+  hash: string | null;
   /** Mean cosine similarity to the frames accepted before it (consistency check). */
   consistency: number | null;
   path: string | null;
@@ -133,7 +149,10 @@ function RegisterContent() {
   const [ownerPhone, setOwnerPhone] = useState('');
   const [farmId, setFarmId] = useState('');
   const [detailsError, setDetailsError] = useState('');
-  const [frames, setFrames] = useState<AcceptedFrame[]>(() => (handed ? [{ analysis: handed, consistency: null, path: null }] : []));
+  const [frames, setFrames] = useState<AcceptedFrame[]>(() => (handed ? [{ analysis: handed, slot: 0, angle: 'front', hash: null, consistency: null, path: null }] : []));
+  // Slot the operator tapped to fill next; otherwise the first empty slot is the target.
+  const [preferredSlot, setPreferredSlot] = useState<number | null>(null);
+  const [duplicate, setDuplicate] = useState<DuplicateFrameRejection | null>(null);
   const [prefilled, setPrefilled] = useState(!!handed);
   const [feedback, setFeedback] = useState<MuzzleAnalysis | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -189,7 +208,8 @@ function RegisterContent() {
   }, []);
 
   const handleFrame = useCallback(async (uri: string, source: CaptureSource) => {
-    if (frames.length >= MAX_FRAMES) return;
+    const target = targetSlot(frames.map((frame) => frame.slot), preferredSlot);
+    if (!target) return;
     setCaptureError('');
     setCaptureService(false);
     setPendingUri({ uri, source });
@@ -200,20 +220,30 @@ function RegisterContent() {
       attempts.current.total += 1;
       if (!analysis.embedding) {
         attempts.current.rejected += 1;
+        // Genuine quality failures keep their specific status (blur, lighting, muzzle not detected…).
+        setDuplicate(null);
         setFeedback(analysis);
         void logAcquisitionEvent({ operation: 'enrol', eventType: 'failure_to_acquire', analysis, framesAttempted: 1, framesAccepted: frames.length });
         void logAudit('biometric.capture', '', `Enrolment frame rejected (not enrolled): ${analysis.status}`, 'failed');
         return;
       }
       const embedding = analysis.embedding;
-      const sims = frames.map((frame) => cosineSimilarity(frame.analysis.embedding ?? [], embedding));
-      if (sims.some((value) => value > 0.9995)) {
-        setFeedback({ ...analysis, status: 'PATTERN NOT CLEAR — RETAKE', reasons: [], hint: 'This frame is identical to one already accepted. Capture a new frame with a slightly different angle.', embedding: null });
+      const hash = await imageHash(analysis.imageBase64);
+      const known = await Promise.all(frames.map(async (frame) => ({ slot: frame.slot, embedding: frame.analysis.embedding, hash: frame.hash ?? (await imageHash(frame.analysis.imageBase64)) })));
+      const match = findDuplicateFrame(embedding, hash, known, cosineSimilarity);
+      if (match) {
+        // DUPLICATE_FRAME: not an image-quality failure, so the quality banner is not used.
+        setFeedback(null);
+        setDuplicate({ category: 'DUPLICATE_FRAME', matchedSlot: match.slot, similarity: match.similarity, identical: match.identical });
+        void logAudit('biometric.capture', '', `Enrolment frame rejected: DUPLICATE_FRAME of frame #${match.slot + 1} (${ANGLE_NAMES[ANGLE_SLOTS[match.slot].angle]})`, 'failed');
         return;
       }
+      const sims = frames.map((frame) => cosineSimilarity(frame.analysis.embedding ?? [], embedding));
       const consistency = sims.length ? sims.reduce((sum, value) => sum + value, 0) / sims.length : null;
+      setDuplicate(null);
       setFeedback(analysis);
-      setFrames((current) => [...current, { analysis, consistency, path: null }].slice(0, MAX_FRAMES));
+      setPreferredSlot(null);
+      setFrames((current) => (current.some((frame) => frame.slot === target.index) ? current : [...current, { analysis, slot: target.index, angle: target.angle, hash, consistency, path: null }].sort((a, b) => a.slot - b.slot)));
     } catch (caught) {
       console.error('Enrolment frame analysis failed', caught);
       const service = classifyBiometricError(caught) === 'service_unavailable';
@@ -224,17 +254,22 @@ function RegisterContent() {
       setAnalyzing(false);
       setStage(null);
     }
-  }, [frames]);
+  }, [frames, preferredSlot]);
 
   /** An enrolment abandoned without the minimum accepted frames after quality rejections is a Failure to Enrol. */
   const reportFailureToEnrol = useCallback(() => {
-    if (step === 4 || frames.length >= MIN_FRAMES || attempts.current.rejected === 0) return;
+    if (step === 4 || requiredSlotsFilled(frames.map((frame) => frame.slot)) || attempts.current.rejected === 0) return;
     void logAcquisitionEvent({ operation: 'enrol', eventType: 'failure_to_enrol', reasonCode: 'insufficient_quality_frames', framesAttempted: attempts.current.total, framesAccepted: frames.length, analysis: feedback });
     attempts.current = { total: 0, rejected: 0 };
-  }, [feedback, frames.length, step]);
+  }, [feedback, frames, step]);
 
-  const removeFrame = useCallback((index: number) => {
-    setFrames((current) => current.filter((_, i) => i !== index));
+  const removeFrame = useCallback((slot: number) => {
+    setFrames((current) => current.filter((frame) => frame.slot !== slot));
+    setDuplicate((current) => (current?.matchedSlot === slot ? null : current));
+  }, []);
+
+  const chooseSlot = useCallback((slot: number) => {
+    setPreferredSlot(slot);
   }, []);
 
   const chooseFarm = useCallback((id: string) => {
@@ -258,15 +293,15 @@ function RegisterContent() {
     setStep(2);
   }, [detailErrors]);
   const goToProcessing = useCallback(() => {
-    if (frames.length >= MIN_FRAMES) {
+    if (requiredSlotsFilled(frames.map((frame) => frame.slot))) {
       setSaveStep(-1);
       setSaveError('');
       setStep(3);
     }
-  }, [frames.length]);
+  }, [frames]);
 
   const handleComplete = useCallback(async (duplicateReviewNote?: string) => {
-    if (saving || frames.length < MIN_FRAMES) return;
+    if (saving || !requiredSlotsFilled(frames.map((frame) => frame.slot))) return;
     const fix = gps.fix;
     if (!animalType || !ageGroup || !productionStatus || !pregnancyStatus || !dairySociety || !fix || Object.keys(detailErrors).length > 0) {
       setSaveError('Some Step 1 details are missing or the GPS location is no longer available. Go back to Details, complete them and capture GPS.');
@@ -278,7 +313,8 @@ function RegisterContent() {
     setRegisteredAt(submittedAt);
     try {
       setSaveStep(0);
-      const uploaded = [...frames];
+      // Slot order: Front, Left, Right, then additional views — matched to their angle tags on the server.
+      const uploaded = [...frames].sort((a, b) => a.slot - b.slot);
       for (let i = 0; i < uploaded.length; i += 1) {
         if (!uploaded[i].path) uploaded[i] = { ...uploaded[i], path: await uploadCapture(uploaded[i].analysis) };
       }
@@ -313,6 +349,7 @@ function RegisterContent() {
         qualityScore: Number((scores.reduce((sum, value) => sum + value, 0) / scores.length).toFixed(3)),
         embeddings: uploaded.map((frame) => embeddingLiteral(frame.analysis.embedding ?? [])),
         imagePaths: uploaded.map((frame) => frame.path ?? ''),
+        captureAngles: uploaded.map((frame) => frame.angle),
         qualityScores: scores,
         qualityMetrics: uploaded.flatMap((frame) => (frame.analysis.metrics ? [frame.analysis.metrics] : [])),
         saveAsDraft,
@@ -337,6 +374,8 @@ function RegisterContent() {
     setShowErrors(false);
     setStep(1);
     setFrames([]);
+    setPreferredSlot(null);
+    setDuplicate(null);
     setFeedback(null);
     setPrefilled(false);
     setSaveStep(-1);
@@ -365,6 +404,9 @@ function RegisterContent() {
               prefilled={prefilled}
               online={online}
               feedback={feedback}
+              duplicate={duplicate}
+              preferredSlot={preferredSlot}
+              onSelectSlot={chooseSlot}
               analyzing={analyzing}
               stage={stage}
               error={captureError}
@@ -583,6 +625,9 @@ interface CaptureStepProps {
   prefilled: boolean;
   online: boolean;
   feedback: MuzzleAnalysis | null;
+  duplicate: DuplicateFrameRejection | null;
+  preferredSlot: number | null;
+  onSelectSlot: (slot: number) => void;
   analyzing: boolean;
   stage: PipelineStage | null;
   error: string;
@@ -590,41 +635,92 @@ interface CaptureStepProps {
   serviceUnavailable: boolean;
   onRetry: () => void;
   onFrame: (uri: string, source: CaptureSource) => void;
-  onRemove: (index: number) => void;
+  onRemove: (slot: number) => void;
   onBack: () => void;
   onNext: () => void;
 }
 
 function CaptureStep(props: CaptureStepProps) {
-  const { frames } = props;
-  const full = frames.length >= MAX_FRAMES;
+  const { frames, duplicate } = props;
+  const filled = useMemo(() => frames.map((frame) => frame.slot), [frames]);
+  const target = targetSlot(filled, props.preferredSlot);
+  const missing = missingRequiredSlots(filled);
+  const ready = missing.length === 0;
+  const notice = useMemo<DuplicateFrameNotice | null>(() => (duplicate ? { frameNumber: duplicate.matchedSlot + 1, angleName: ANGLE_SLOTS[duplicate.matchedSlot]?.title ?? 'accepted frame', similarity: duplicate.similarity, identical: duplicate.identical } : null), [duplicate]);
   return (
     <View style={styles.stepContent}>
-      <View><Text style={styles.eyebrow}>STEP 2 OF 4</Text><Text style={styles.pageTitle}>Capture Muzzle</Text><Text style={styles.pageDescription}>Capture {MIN_FRAMES}–{MAX_FRAMES} high-quality frames of the same animal. Each passes the same quality pre-check and preprocessing used for identification and verification; rejected frames are never enrolled.</Text></View>
-      {props.prefilled ? <View style={styles.infoBox}><Ionicons name="link-outline" size={17} color={colors.blue} /><Text style={styles.infoText}>Frame 1 was carried over from your Identify scan (no registered match).</Text></View> : null}
+      <View><Text style={styles.eyebrow}>STEP 2 OF 4</Text><Text style={styles.pageTitle}>Capture Muzzle</Text><Text style={styles.pageDescription}>Capture the three required angles — Front, Left ~15° and Right ~15° — plus up to two optional views. Distinct angles map the 3D muzzle ridge pattern; each frame passes the same quality pre-check used for identification, and rejected frames are never enrolled.</Text></View>
+      {props.prefilled ? <View style={styles.infoBox}><Ionicons name="link-outline" size={17} color={colors.blue} /><Text style={styles.infoText}>The Front View was carried over from your Identify scan (no registered match).</Text></View> : null}
       {!props.online ? <View style={styles.inlineError}><Ionicons name="cloud-offline-outline" size={17} color={colors.danger} /><Text style={styles.inlineErrorText}>Muzzle analysis needs a connection to the AI Gateway. Reconnect to capture frames.</Text></View> : null}
-      <MuzzleCapture onFrame={props.onFrame} busy={props.analyzing} feedback={props.feedback} captureLabel={full ? 'Frames Complete' : `Capture Frame ${frames.length + 1}`} disabled={full || !props.online} />
+      <MuzzleCapture
+        onFrame={props.onFrame}
+        busy={props.analyzing}
+        feedback={props.feedback}
+        duplicate={notice}
+        targetBadge={target ? target.badge : 'ALL VIEWS CAPTURED'}
+        captureLabel={target ? target.prompt : 'All Views Captured'}
+        uploadLabel={target ? `Upload ${target.title}` : 'All Views Captured'}
+        disabled={!target || !props.online}
+      />
       {props.analyzing ? <Card style={styles.processingCard}><EnginePipeline stage={props.stage} includeSearch={false} /></Card> : null}
       {props.error && props.serviceUnavailable ? <ServiceUnavailablePanel message={props.error} onRetry={props.canRetry && props.online ? props.onRetry : undefined} /> : null}
       {props.error && !props.serviceUnavailable ? <View style={styles.inlineError}><Ionicons name="alert-circle" size={17} color={colors.danger} /><Text selectable style={styles.inlineErrorText}>{props.error}</Text>{props.canRetry ? <PrimaryButton label="Retry" variant="outline" onPress={props.onRetry} style={styles.retryButton} /> : null}</View> : null}
       <Card style={styles.reelCard}>
-        <View style={styles.reelHeader}><Text style={styles.formSectionTitle}>Accepted muzzle frames</Text><Text style={styles.captureCounter}>{frames.length} / {MAX_FRAMES}</Text></View>
-        <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${(frames.length / MAX_FRAMES) * 100}%` }, frames.length >= MIN_FRAMES && styles.progressDone]} /></View>
-        <View style={styles.thumbnailRow}>
-          {frames.map((frame, index) => (
-            <View style={styles.thumbnailWrap} key={frame.analysis.imageUri}>
-              <CaptureImage uri={frame.analysis.cropUri ?? frame.analysis.imageUri} label={`#${index + 1}`} size={60} />
-              <Text style={styles.qualityText}>Q {Math.round(frame.analysis.qualityScore * 100)}%</Text>
-              {frame.consistency !== null ? <Text style={[styles.consistency, frame.consistency < 0.35 && styles.consistencyLow]}>sim {frame.consistency.toFixed(2)}</Text> : <Text style={styles.consistency}>reference</Text>}
-              <Pressable accessibilityRole="button" accessibilityLabel={`Remove frame ${index + 1}`} onPress={() => props.onRemove(index)} style={styles.removeFrame}><Ionicons name="close" size={14} color={colors.surface} /></Pressable>
-            </View>
+        <View style={styles.reelHeader}><Text style={styles.formSectionTitle}>Angle-guided muzzle views</Text><Text style={styles.captureCounter}>{frames.length} / {MAX_FRAMES}</Text></View>
+        <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${(frames.length / MAX_FRAMES) * 100}%` }, ready && styles.progressDone]} /></View>
+        <View style={styles.slotList}>
+          {ANGLE_SLOTS.map((slot) => (
+            <AngleSlotCard
+              key={slot.index}
+              slot={slot}
+              frame={frames.find((frame) => frame.slot === slot.index) ?? null}
+              isTarget={target?.index === slot.index}
+              matched={duplicate?.matchedSlot === slot.index}
+              disabled={props.analyzing}
+              onSelect={props.onSelectSlot}
+              onRemove={props.onRemove}
+            />
           ))}
-          {frames.length === 0 && <Text style={styles.reelEmpty}>Accepted frames appear here with their quality score and similarity to earlier frames.</Text>}
         </View>
-        {frames.some((frame) => frame.consistency !== null && frame.consistency < 0.35) ? <Text style={styles.warnText}>A frame differs strongly from the others. Make sure every frame shows the same animal; remove it if not.</Text> : null}
+        {frames.some((frame) => frame.consistency !== null && frame.consistency < 0.35) ? <Text style={styles.warnText}>A view differs strongly from the others. Make sure every view shows the same animal; remove it if not.</Text> : null}
       </Card>
-      <View style={styles.buttonRow}><PrimaryButton label="Back" onPress={props.onBack} variant="outline" style={styles.halfButton} /><PrimaryButton label={frames.length < MIN_FRAMES ? `Need ${MIN_FRAMES - frames.length} more` : 'Run Duplicate Check'} icon="arrow-forward" onPress={props.onNext} disabled={frames.length < MIN_FRAMES || props.analyzing} style={styles.halfButton} /></View>
+      <View style={styles.buttonRow}><PrimaryButton label="Back" onPress={props.onBack} variant="outline" style={styles.halfButton} /><PrimaryButton label={ready ? 'Run Duplicate Check' : `Need ${missing.length} more`} icon="arrow-forward" onPress={props.onNext} disabled={!ready || props.analyzing} style={styles.halfButton} /></View>
+      {!ready ? <Text style={styles.gateNote}>Required: {missing.map((slot) => slot.title).join(', ')}.</Text> : null}
     </View>
+  );
+}
+
+/** One angle slot: empty slots can be tapped to make them the capture target; filled slots show their accepted frame. */
+function AngleSlotCard({ slot, frame, isTarget, matched, disabled, onSelect, onRemove }: { slot: (typeof ANGLE_SLOTS)[number]; frame: AcceptedFrame | null; isTarget: boolean; matched: boolean; disabled: boolean; onSelect: (slot: number) => void; onRemove: (slot: number) => void }) {
+  const number = slot.index + 1;
+  const body = (
+    <View style={[styles.slotCard, frame && styles.slotCardDone, isTarget && styles.slotCardTarget, matched && styles.slotCardMatched]}>
+      {frame ? (
+        <CaptureImage uri={frame.analysis.cropUri ?? frame.analysis.imageUri} label={`#${number}`} size={56} />
+      ) : (
+        <View style={[styles.slotNumber, isTarget && styles.slotNumberTarget]}><Text style={[styles.slotNumberText, isTarget && styles.slotNumberTextTarget]}>{number}</Text></View>
+      )}
+      <View style={styles.slotBody}>
+        <View style={styles.slotTitleRow}>
+          <Text style={styles.slotTitle}>{slot.title}</Text>
+          <Text style={[styles.slotTag, slot.required ? styles.slotTagRequired : styles.slotTagOptional]}>{slot.required ? 'REQUIRED' : 'OPTIONAL'}</Text>
+        </View>
+        <Text style={styles.slotSubtitle}>{slot.subtitle}</Text>
+        {matched ? <Text style={styles.slotMatched}>Matched by duplicate image — capture a new angle</Text> : null}
+        {frame ? (
+          <Text style={styles.slotMeta}>Q {Math.round(frame.analysis.qualityScore * 100)}% · {frame.consistency !== null ? `sim ${frame.consistency.toFixed(2)}` : 'reference'} · {frame.analysis.source === 'upload' ? 'uploaded' : 'camera'}</Text>
+        ) : isTarget ? <Text style={styles.slotTargetText}>NEXT TARGET</Text> : <Text style={styles.slotHint}>Tap to capture this view next</Text>}
+      </View>
+      {frame ? (
+        <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${slot.title}`} onPress={() => onRemove(slot.index)} hitSlop={8} style={styles.slotRemove}><Ionicons name="trash-outline" size={17} color={colors.danger} /></Pressable>
+      ) : null}
+    </View>
+  );
+  if (frame) return body;
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={`Capture ${slot.title} next`} accessibilityState={{ selected: isTarget, disabled }} disabled={disabled} onPress={() => onSelect(slot.index)}>
+      {({ pressed }) => <View style={pressed && styles.pressed}>{body}</View>}
+    </Pressable>
   );
 }
 
@@ -847,6 +943,28 @@ const styles = StyleSheet.create({
   reelCard: { gap: 14 },
   reelHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   reelHint: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 11 },
+  slotList: { gap: 8 },
+  slotCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10, minHeight: 76, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  slotCardDone: { borderColor: '#A7F3D0', backgroundColor: '#F7FEFB' },
+  slotCardTarget: { borderColor: '#F59E0B', borderWidth: 2, backgroundColor: '#FFFBEB' },
+  slotCardMatched: { borderColor: colors.danger, borderWidth: 2, backgroundColor: '#FFF1F2' },
+  slotNumber: { width: 56, height: 56, borderRadius: 12, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#CBD5E1', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.slateLight },
+  slotNumberTarget: { borderColor: '#F59E0B', backgroundColor: '#FEF3C7' },
+  slotNumberText: { color: colors.muted, fontFamily: Fonts.bold, fontSize: 18 },
+  slotNumberTextTarget: { color: '#B45309' },
+  slotBody: { flex: 1, gap: 2 },
+  slotTitleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  slotTitle: { color: colors.text, fontFamily: Fonts.bold, fontSize: 14 },
+  slotTag: { fontFamily: Fonts.bold, fontSize: 9, letterSpacing: 0.6, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, overflow: 'hidden' },
+  slotTagRequired: { color: colors.primaryDark, backgroundColor: colors.primaryLight },
+  slotTagOptional: { color: colors.muted, backgroundColor: colors.slateLight },
+  slotSubtitle: { color: colors.muted, fontFamily: Fonts.regular, fontSize: 12, lineHeight: 16 },
+  slotMeta: { color: colors.primary, fontFamily: Fonts.semiBold, fontSize: 11, marginTop: 2, fontVariant: ['tabular-nums'] },
+  slotTargetText: { color: '#B45309', fontFamily: Fonts.bold, fontSize: 10, letterSpacing: 1, marginTop: 2 },
+  slotHint: { color: colors.muted, fontFamily: Fonts.medium, fontSize: 11, marginTop: 2 },
+  slotMatched: { color: colors.danger, fontFamily: Fonts.bold, fontSize: 11, marginTop: 2 },
+  slotRemove: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.dangerLight },
+  pressed: { opacity: 0.85 },
   thumbnailRow: { flexDirection: 'row', gap: 8, minHeight: 75, alignItems: 'center' },
   thumbnailWrap: { width: 57, gap: 3 },
   qualityText: { color: colors.primary, fontFamily: Fonts.bold, fontSize: 9 },

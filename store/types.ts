@@ -314,6 +314,8 @@ export interface RegisterPayload {
   /** pgvector literals of the accepted 256-D embeddings (3–5). */
   embeddings: string[];
   image_paths: string[];
+  /** Capture angle per frame; absent on records queued before angle-guided capture. */
+  capture_angles?: CaptureAngle[];
   quality_scores: number[];
   quality_metrics: QualityMetrics[];
   save_as_draft: boolean;
@@ -719,4 +721,20 @@ export interface ScanReviewItem {
   review_resolution_note: string | null;
   review_confirmed_moozzle_id: string | null;
   candidates: ReviewCandidate[];
+}
+
+/** Capture angle recorded on every enrolment frame and biometric template. */
+export type CaptureAngle = 'front' | 'left' | 'right' | 'additional';
+
+/**
+ * A frame rejected because it repeats an already-accepted frame. Never a quality failure:
+ * the image itself may be fine, but enrolment needs distinct angles.
+ */
+export interface DuplicateFrameRejection {
+  category: 'DUPLICATE_FRAME';
+  /** Slot index (0-based) of the accepted frame that was matched. */
+  matchedSlot: number;
+  similarity: number;
+  /** True when the normalised image bytes are identical, not only near-identical. */
+  identical: boolean;
 }

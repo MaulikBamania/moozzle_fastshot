@@ -3,6 +3,7 @@ import * as Linking from 'expo-linking';
 import createQr from 'qrcode-generator';
 import { getAnimalImageSource, formatMoozzleId } from '@/components/moozzle-ui';
 import { formatAge } from '@/lib/age';
+import { quadrantPaths, type TemplateFrameRow } from '@/lib/biometric/angles';
 import { signedCaptureUrl } from '@/lib/biometric/engine';
 import { remoteDataUrl } from '@/lib/certificate/data-url';
 import { getDeviceId } from '@/lib/device-id';
@@ -110,13 +111,12 @@ async function captureDataUrl(path: string | null | undefined): Promise<string |
   }
 }
 
-/** Front/left/right frames come from enrolment order; templates are only listed for privileged roles. */
+/** Templates are only listed for privileged roles; otherwise the reference image fills the Front View. */
 async function muzzleFrames(animal: Animal): Promise<CertificateMuzzleFrame[]> {
-  const { data, error } = await supabase.from('biometric_templates').select('image_path, frame_index').eq('animal_id', animal.id).not('image_path', 'is', null).order('frame_index', { ascending: true }).limit(3);
+  const { data, error } = await supabase.from('biometric_templates').select('image_path, frame_index, capture_angle').eq('animal_id', animal.id).not('image_path', 'is', null).order('frame_index', { ascending: true }).limit(5);
   if (error) console.warn('Template frames unavailable for certificate', error);
-  const listed = ((data ?? []) as { image_path: string | null }[]).map((row) => row.image_path).filter((path): path is string => !!path);
-  const paths = listed.length ? listed : [animal.reference_image_path];
-  const [front, left, right] = await Promise.all([0, 1, 2].map((index) => captureDataUrl(paths[index])));
+  const paths = quadrantPaths((data ?? []) as TemplateFrameRow[], animal.reference_image_path);
+  const [front, left, right] = await Promise.all(paths.map((path) => captureDataUrl(path)));
   const reference = front ?? (await captureDataUrl(animal.reference_image_path));
   let processed: string | null = null;
   let enhance = false;

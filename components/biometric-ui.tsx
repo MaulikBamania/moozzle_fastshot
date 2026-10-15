@@ -27,14 +27,22 @@ export function MuzzleCapture({
   onFrame,
   busy,
   captureLabel = 'Capture & Identify',
+  uploadLabel = 'Upload Muzzle Photo',
   disabled = false,
   feedback,
+  targetBadge,
+  duplicate,
 }: {
   onFrame: (uri: string, source: CaptureSource) => void;
   busy: boolean;
   captureLabel?: string;
+  uploadLabel?: string;
   disabled?: boolean;
   feedback?: MuzzleAnalysis | null;
+  /** Angle guidance shown at the top of the viewfinder, e.g. "TARGET: FRONT VIEW (0°)". */
+  targetBadge?: string | null;
+  /** Set when the last frame repeated an accepted frame; replaces the quality banner. */
+  duplicate?: DuplicateFrameNotice | null;
 }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
@@ -83,7 +91,7 @@ export function MuzzleCapture({
   }, [onFrame]);
 
   const status = feedback?.status;
-  const tone = !status ? 'idle' : status === GOOD ? 'good' : WARN_STATUSES.includes(status) ? 'warn' : 'bad';
+  const tone = duplicate ? 'warn' : !status ? 'idle' : status === GOOD ? 'good' : WARN_STATUSES.includes(status) ? 'warn' : 'bad';
 
   return (
     <View style={styles.wrap}>
@@ -115,8 +123,16 @@ export function MuzzleCapture({
         )}
         <View pointerEvents="none" style={styles.overlay}>
           <View style={[styles.oval, tone === 'good' && styles.ovalGood, tone === 'warn' && styles.ovalWarn, tone === 'bad' && styles.ovalBad]} />
-          <Text style={styles.ovalLabel}>ALIGN MUZZLE</Text>
+          <Text style={[styles.ovalLabel, duplicate && styles.ovalLabelWarn]}>{duplicate ? 'CHANGE ANGLE' : 'ALIGN MUZZLE'}</Text>
         </View>
+        {targetBadge ? (
+          <View pointerEvents="none" style={styles.hud}>
+            <View style={styles.hudBadge}>
+              <Ionicons name="locate-outline" size={13} color="#0B2735" />
+              <Text style={styles.hudText} numberOfLines={1}>{targetBadge}</Text>
+            </View>
+          </View>
+        ) : null}
         {cameraOn ? (
           <Pressable accessibilityRole="button" accessibilityLabel="Flip camera" onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))} style={styles.flip}>
             <Ionicons name="camera-reverse-outline" size={20} color={colors.surface} />
@@ -124,11 +140,43 @@ export function MuzzleCapture({
         ) : null}
         {busy ? <View style={styles.busy}><ActivityIndicator color={colors.surface} /></View> : null}
       </View>
-      <QualityBanner analysis={feedback ?? null} />
+      {duplicate ? <DuplicateFrameBanner notice={duplicate} /> : <QualityBanner analysis={feedback ?? null} />}
       {error ? <Text selectable accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-      <View style={styles.row}>
-        <PrimaryButton label="Upload Muzzle Photo" icon="image-outline" variant="outline" onPress={() => void upload()} disabled={busy || disabled} style={styles.flex} />
-        {cameraOn ? <PrimaryButton label={captureLabel} icon="scan-outline" onPress={() => void capture()} disabled={busy || disabled || !ready} style={styles.flex} /> : null}
+      {targetBadge ? (
+        // Angle-guided prompts are long, so the actions stack full width.
+        <View style={styles.stack}>
+          {cameraOn ? <PrimaryButton label={captureLabel} icon="scan-outline" onPress={() => void capture()} disabled={busy || disabled || !ready} /> : null}
+          <PrimaryButton label={uploadLabel} icon="image-outline" variant="outline" onPress={() => void upload()} disabled={busy || disabled} />
+        </View>
+      ) : (
+        <View style={styles.row}>
+          <PrimaryButton label={uploadLabel} icon="image-outline" variant="outline" onPress={() => void upload()} disabled={busy || disabled} style={styles.flex} />
+          {cameraOn ? <PrimaryButton label={captureLabel} icon="scan-outline" onPress={() => void capture()} disabled={busy || disabled || !ready} style={styles.flex} /> : null}
+        </View>
+      )}
+    </View>
+  );
+}
+
+export interface DuplicateFrameNotice {
+  /** 1-based frame number of the matched accepted frame. */
+  frameNumber: number;
+  angleName: string;
+  similarity: number;
+  identical: boolean;
+}
+
+/** DUPLICATE_FRAME rejection: the frame repeats an accepted one. Kept separate from image-quality failures. */
+export function DuplicateFrameBanner({ notice }: { notice: DuplicateFrameNotice }) {
+  return (
+    <View accessibilityRole="alert" style={styles.dupBanner}>
+      <View style={styles.dupIcon}><Ionicons name="copy-outline" size={18} color={colors.surface} /></View>
+      <View style={styles.flex}>
+        <Text style={styles.dupTitle}>DUPLICATE IMAGE DETECTED — CHANGE ANGLE</Text>
+        <Text style={styles.dupText}>
+          This image is identical or too similar to Frame #{notice.frameNumber} ({notice.angleName}). Bovine registration requires distinct angles (Front, Left ~15°, Right ~15°) to map the 3D muzzle ridge pattern. Please rotate 10°–15° or choose a different perspective.
+        </Text>
+        <Text selectable style={styles.dupMeta}>{notice.identical ? 'Identical image data' : `Cosine similarity ${notice.similarity.toFixed(4)} (limit 0.9995)`} · frame not added</Text>
       </View>
     </View>
   );
@@ -236,6 +284,16 @@ const styles = StyleSheet.create({
   ovalGood: { borderColor: '#34D399', borderStyle: 'solid', borderWidth: 3 },
   ovalWarn: { borderColor: '#FBBF24', borderStyle: 'solid', borderWidth: 3 },
   ovalBad: { borderColor: '#F87171', borderStyle: 'solid', borderWidth: 3 },
+  ovalLabelWarn: { color: '#FBBF24' },
+  hud: { position: 'absolute', top: 12, left: 12, right: 64, alignItems: 'flex-start', zIndex: 3 },
+  hudBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: '100%', backgroundColor: '#FBBF24', borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6 },
+  hudText: { flexShrink: 1, color: '#0B2735', fontFamily: Fonts.bold, fontSize: 11, letterSpacing: 0.8 },
+  stack: { gap: 10 },
+  dupBanner: { flexDirection: 'row', gap: 11, padding: 13, borderRadius: 14, alignItems: 'flex-start', backgroundColor: '#FFF7ED', borderWidth: 1.5, borderColor: '#F59E0B', borderLeftWidth: 5, borderLeftColor: colors.danger },
+  dupIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.warning, alignItems: 'center', justifyContent: 'center' },
+  dupTitle: { color: '#B45309', fontFamily: Fonts.bold, fontSize: 13, letterSpacing: 0.4, lineHeight: 18 },
+  dupText: { color: colors.text, fontFamily: Fonts.regular, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  dupMeta: { color: '#9A3412', fontFamily: Fonts.semiBold, fontSize: 11, marginTop: 6, fontVariant: ['tabular-nums'] },
   ovalLabel: { color: 'rgba(255,255,255,0.85)', fontFamily: Fonts.bold, fontSize: 10, letterSpacing: 2 },
   flip: { position: 'absolute', top: 12, right: 12, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(15,23,42,0.55)', alignItems: 'center', justifyContent: 'center', zIndex: 3 },
   busy: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.45)', alignItems: 'center', justifyContent: 'center', zIndex: 4 },

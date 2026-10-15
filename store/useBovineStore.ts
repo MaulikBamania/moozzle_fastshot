@@ -15,6 +15,7 @@ import type {
   AnimalRow,
   AgeGroup,
   AnimalType,
+  CaptureAngle,
   FarmRow,
   GpsFix,
   LivestockServiceRecord,
@@ -94,6 +95,8 @@ export interface NewAnimalInput {
   qualityScore: number;
   embeddings: string[];
   imagePaths: string[];
+  /** Angle tag per frame, aligned with embeddings / imagePaths (front, left, right, additional). */
+  captureAngles: CaptureAngle[];
   qualityScores: number[];
   qualityMetrics: QualityMetrics[];
   saveAsDraft: boolean;
@@ -380,6 +383,7 @@ function toRegisterPayload(input: NewAnimalInput): RegisterPayload {
     quality_score: input.qualityScore,
     embeddings: input.embeddings,
     image_paths: input.imagePaths,
+    capture_angles: input.captureAngles,
     quality_scores: input.qualityScores,
     quality_metrics: input.qualityMetrics,
     save_as_draft: input.saveAsDraft,
